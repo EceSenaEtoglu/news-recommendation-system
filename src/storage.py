@@ -47,7 +47,29 @@ class ArticleDB:
             )
         """)
         
+        # graph tables
+        conn.execute("""
+        CREATE TABLE IF NOT EXISTS entities (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT UNIQUE NOT NULL,
+            type TEXT
+        )
+        """)
+        conn.execute("""
+        CREATE TABLE IF NOT EXISTS article_entities (
+            article_id TEXT NOT NULL,
+            entity_id INTEGER NOT NULL,
+            mentions INTEGER DEFAULT 1,
+            PRIMARY KEY (article_id, entity_id),
+            FOREIGN KEY(entity_id) REFERENCES entities(id)
+        )
+        """)
+        
         # Create index for faster searches
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_entities_name ON entities(name)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_article_entities_entity ON article_entities(entity_id)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_article_entities_article ON article_entities(article_id)")
+
         conn.execute("CREATE INDEX IF NOT EXISTS idx_published ON articles(published_at)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_source ON articles(source_id)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_content_type ON articles(content_type)")
@@ -129,6 +151,7 @@ class ArticleDB:
         
         try:
             # Build SQL query
+            # TODO what is 1 = 1?
             sql = "SELECT * FROM articles WHERE 1=1"
             params = []
             
@@ -242,3 +265,25 @@ class ArticleDB:
             topics=topics,
             created_at=created_at
         )
+        
+    # Batch loading increases efficiency
+    def get_articles_by_ids(self, article_ids: List[str]) -> List[Article]:
+        """Get multiple articles by their IDs in a single query."""
+        if not article_ids:
+            return []
+        
+        conn = sqlite3.connect(self.db_path)
+        conn.row_factory = sqlite3.Row
+        
+        try:
+            # Create placeholders for IN clause
+            placeholders = ",".join(["?" for _ in article_ids])
+            sql = f"SELECT * FROM articles WHERE id IN ({placeholders})"
+            
+            cursor = conn.execute(sql, article_ids)
+            rows = cursor.fetchall()
+            
+            return [self._row_to_article(row) for row in rows]
+            
+        finally:
+            conn.close()    
