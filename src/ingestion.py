@@ -7,6 +7,10 @@ from .providers import create_provider
 from .storage import ArticleDB
 from .models import Article
 
+import spacy
+_NER = spacy.load("en_core_web_sm")
+
+
 # TODO just an architectural template
 # match with the actual api
 class NewsIngestionPipeline:
@@ -33,6 +37,12 @@ class NewsIngestionPipeline:
         
         # Step 3: Save to database
         saved_count = self.db.save_articles(processed_articles)
+        # After: saved_count = self.db.save_articles(processed_articles)
+        for a in processed_articles:
+            if a.entities:
+                named = [(n, "MISC", 1) for n in a.entities]  # or recompute types; MISC is fine for demo
+                self.db.upsert_article_entities(a.id, named)
+
         print(f" Saved {saved_count} articles to database")
         
         # Step 4: Show stats
@@ -48,23 +58,15 @@ class NewsIngestionPipeline:
         }
     
     def _process_articles(self, articles: List[Article]) -> List[Article]:
-        """Additional processing if needed"""
         processed = []
-        
         for article in articles:
-            # Filter out very short articles
-            if len(article.content) < 200:
-                continue
-                
-            # Filter out articles without meaningful titles
-            if len(article.title) < 20:
-                continue
-            
-            # Auto-bias detection already happened in Article.__post_init__
+            if len(article.content) < 200: continue
+            if len(article.title) < 20: continue
+            named = self._extract_entities(article)
+            article.entities = [n for (n, _, __) in named]  # keep names in JSON column
             processed.append(article)
-        
         return processed
-    
+
     def _print_stats(self, articles: List[Article], db_stats: dict):
         """Print interesting statistics"""
         print("\n Ingestion Results:")
@@ -95,6 +97,23 @@ class NewsIngestionPipeline:
         print(f"   High urgency articles: {high_urgency}")
         
         print(f"   Top sources: {db_stats.get('top_sources', {})}")
+        
+    def _extract_entities(self, article: Article) -> list[tuple[str,str,int]]:
+        text = f"{article.title}. {article.description or ''} { (article.content or '')[:1200] }"
+        ents = []
+        
+        doc = _NER(text)
+        keep = {"PERSON","ORG","GPE","LOC","PRODUCT","EVENT","WORK_OF_ART"}
+        for e in doc.ents:
+            if e.label_ in keep:
+                ents.append((e.text.strip(), e.label_, 1))
+        
+        # merge dupes
+        merged = {}
+        for name, etype, c in ents:
+            key = (name, etype)
+            merged[key] = merged.get(key, 0) + c
+        return [(n, t, c) for (n,t), c in merged.items()]
 
 # Convenience function for scripts
 async def ingest_news(api_key: str, limit: int = 50):

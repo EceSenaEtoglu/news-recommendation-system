@@ -65,6 +65,10 @@ class Article:
         if self.description:
             self.description = self.description.replace('\x00', '')
             
+        # bias detection
+        self._detect_content_bias()
+
+            
     # TODO, should be swiched with NER or classification
     def _detect_content_bias(self):
         """Smart bias detection based on article content and metadata"""
@@ -104,7 +108,7 @@ class Article:
 @dataclass
 class UserProfile:
     """Simple user profile for personalization"""
-    id: str
+    user_id: str
     preferred_topics: List[str] = field(default_factory=list)
     preferred_sources: List[str] = field(default_factory=list)
     blocked_sources: List[str] = field(default_factory=list)
@@ -113,6 +117,8 @@ class UserProfile:
     created_at: datetime = field(default_factory=datetime.now)
 
 @dataclass
+# TODO how to init the query type
+# Query type refers to different angles or aspects of coverage for the same underlying news event
 class SearchQuery:
     """Search query with metadata"""
     text: str
