@@ -63,6 +63,19 @@ class RAGConfig:
     SOURCE_CREDIBILITY_WEIGHT: float = 0.3
     CONTENT_COMPLEXITY_WEIGHT: float = 0.3
     
+import re
+import nltk
+from nltk.corpus import stopwords
+from nltk.stem.porter import PorterStemmer
+STOP = set(stopwords.words("english"))
+STEM = PorterStemmer()
+
+def _tokenize(text: str) -> list[str]:
+    # keep words, strip punctuation, normalize
+    words = re.findall(r"[A-Za-z0-9]+", (text or "").lower())
+    # drop stopwords and very short tokens, optional stemming
+    return [STEM.stem(w) for w in words if w not in STOP and len(w) > 2]
+    
 class MultiRAGRetriever:
     """Enhanced RAG system with caching, cross-encoder, and graph features"""
     
@@ -116,7 +129,7 @@ class MultiRAGRetriever:
         except Exception as e:
             print(f" Failed to load BM25 cache: {e}")
             self._rebuild_bm25_index()
-    
+            
     def _rebuild_bm25_index(self):
         """Rebuild BM25 index from database"""
         articles = self.db.get_recent_articles(limit=1000, hours_back=24*7)
@@ -126,13 +139,11 @@ class MultiRAGRetriever:
             self.bm25_articles = []
             
             for article in articles:
-                # TODO, fix
                 text = f"{article.title} {article.description or ''} {article.content[:500]}"
-                doc_tokens = text.lower().split()
+                doc_tokens = _tokenize(text)
                 corpus.append(doc_tokens)
                 self.bm25_articles.append(article)
             
-            # TODO pip install rank_bm25
             self.bm25_index = BM25Okapi(corpus)
             print(f"Built BM25 index with {len(articles)} articles")
         else:
@@ -569,8 +580,8 @@ class MultiRAGRetriever:
         if not self.bm25_index:
             return []
         
-        query_tokens = query.lower().split()
-        scores = self.bm25_index.get_scores(query_tokens)
+        q_tokens = _tokenize(query)
+        scores = self.bm25_index.get_scores(q_tokens)
         
         scored_indices = [(i, scores[i]) for i in range(len(scores))]
         scored_indices.sort(key=lambda x: x[1], reverse=True)
