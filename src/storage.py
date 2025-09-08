@@ -5,6 +5,7 @@ from typing import List, Optional
 from .models import Article, Source, ContentType, TargetAudience
 from datetime import datetime, timedelta
 from math import exp
+from.retrieval import RAGConfig
 
 # TODO match with the actual api call
 # TODO for simplicity did not use ORM, use ORM in the future
@@ -514,8 +515,8 @@ class ArticleDB:
             topics_raw = (getattr(a, "topics", None) or [])
             ents_norm   = [str(e or "").strip().lower() for e in ents_raw if e is not None]
             topics_norm = [str(t or "").strip().lower() for t in topics_raw if t]
-            ents   = list(dict.fromkeys(ents_norm))[:10]
-            topics = list(dict.fromkeys(topics_norm))[:10]
+            ents   = list(dict.fromkeys(ents_norm))[:RAGConfig.max_entities_per_article]
+            topics = list(dict.fromkeys(topics_norm))[:RAGConfig.max_topics_per_article]
 
             for e in ents:
                 key = f"ent:{e}"

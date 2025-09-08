@@ -369,7 +369,7 @@ class MultiRAGRetriever:
             stop_words = set(stopwords.words('english'))
             
             filtered_entities = [e for e in entities if e not in stop_words]
-            return filtered_entities[:10]  # Limit to top 10 entities
+            return filtered_entities[:self.config.max_entities_per_article]  # Limit to top 10 entities
             
         except Exception as e:
             print(f" Entity extraction failed: {e}")
@@ -491,7 +491,7 @@ class MultiRAGRetriever:
             # 1) Learned entities weight  (primary signal)
             
             # get 10 entities of the article
-            ents = [e.lower() for e in (getattr(a, "entities", None) or [])][:10]
+            ents = [e.lower() for e in (getattr(a, "entities", None) or [])][:self.config.max_entities_per_article]
             
             # if they are in user prefs, get their weight sum
             ent_delta = sum(user_ent_weights.get(e, 0.0) for e in ents)
