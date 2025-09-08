@@ -483,10 +483,7 @@ class ArticleDB:
         articles_by_id = {a.id: a for a in self.get_articles_by_ids(article_ids)}
 
         base = {"save": 1.0, "read": 0.5, "skip": -0.3}
-        ENTITY_LR = 1.0
-        TOPIC_LR  = 0.5
-        FRESHNESS_DECAY_DAY = 4
-
+   
         deltas: dict[str, float] = {}
         now = datetime.utcnow()
 
@@ -501,7 +498,7 @@ class ArticleDB:
             else:
                 hours = 24.0  # safe fallback
 
-            fresh = exp(-hours / (FRESHNESS_DECAY_DAY * 24.0))
+            fresh = exp(-hours / (RAGConfig.freshness_decay_exp_constant * 24.0))
 
             dwell_ms = ev["dwell_ms"] or 0
             dwell_factor = 1.0 if dwell_ms <= 0 else min(1.5, 0.5 + (dwell_ms / 30000.0))
@@ -520,11 +517,11 @@ class ArticleDB:
 
             for e in ents:
                 key = f"ent:{e}"
-                deltas[key] = deltas.get(key, 0.0) + ENTITY_LR * delta
+                deltas[key] = deltas.get(key, 0.0) + RAGConfig.entity_lr* delta
 
             for t in topics:
                 key = f"topic:{t}"
-                deltas[key] = deltas.get(key, 0.0) + TOPIC_LR * delta
+                deltas[key] = deltas.get(key, 0.0) + RAGConfig.topic_lr* delta
 
         # Fresh recompute
         conn = sqlite3.connect(self.db_path)

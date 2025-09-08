@@ -22,6 +22,12 @@ import numpy as np
 @dataclass
 class RAGConfig:
     """Configuration for different RAG strategies"""
+    
+    # Database retrieval constants
+    entity_lr = 1.0
+    topic_lr  = 0.5
+    freshness_decay_exp_constant = 4
+
     # Hybrid weights
     bm25_weight: float = 0.4
     semantic_weight: float = 0.6
@@ -30,13 +36,17 @@ class RAGConfig:
     freshness_decay_hours: float = 24.0
     freshness_weight: float = 0.3
     
-    # Personalization
+    # Personalization weights and penalties
     user_profile_weight: float = 0.2
     personalization_weight: float = 0.10
     topic_string_weight : float = 0.05
     content_type_bonus : float = 0.10
     audience_bonus : 0.10
     per_source_repeat_penalty = 0.02
+    # Personlization clamp
+    personalization_cap = (-0.5, 0.8)
+    
+    article_entity_score_clamp = (-2.0,2.0)
 
     # Diversity/Balance
     min_sources: int = 2
@@ -495,13 +505,17 @@ class MultiRAGRetriever:
             
             # if they are in user prefs, get their weight sum
             ent_delta = sum(user_ent_weights.get(e, 0.0) for e in ents)
+            
+            article_entity_score_clamp = getattr(self.config,"article_entity_score_clamp")
 
             # per-article clamp
-            if ent_delta > 2.0:
-                ent_delta = 2.0
-            elif ent_delta < -2.0:
-                ent_delta = -2.0
+            if ent_delta > article_entity_score_clamp[1]:
+                ent_delta = article_entity_score_clamp[1]
+            elif ent_delta < article_entity_score_clamp[0]:
+                ent_delta = article_entity_score_clamp[0]
 
+
+            # TODO should we clamp?
             # 2) Topic weight (fallback to default preferred topics if not learned any)
             topic_delta = 0.0
             search_text = f"{a.title}".lower()
