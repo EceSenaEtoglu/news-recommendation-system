@@ -4,6 +4,7 @@ from datetime import datetime
 from typing import List, Optional
 from .base import ArticleProvider
 from ..models import Article, Source, ContentType, TargetAudience
+from datetime import timezone
 
 # TODO, match it with the API calls!
 
@@ -52,8 +53,8 @@ class NewsAPIProvider(ArticleProvider):
                 
                 # Parse date
                 try:
-                    published_at = datetime.fromisoformat(item["publishedAt"].replace("Z", "+00:00"))
-                    published_at = published_at.replace(tzinfo=None)
+                    published_at = datetime.fromisoformat(item["publishedAt"].replace("Z","+00:00"))
+                    published_at = published_at.astimezone(timezone.utc)
                 except:
                     published_at = datetime.now()
                 

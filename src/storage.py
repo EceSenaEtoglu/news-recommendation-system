@@ -204,7 +204,7 @@ class ArticleDB:
             # Recent articles only
             if hours_back > 0:
                 from datetime import timedelta
-                cutoff = (datetime.utcnow() - timedelta(hours=hours_back))
+                cutoff = (datetime.now(datetime.timezone.utc)- timedelta(hours=hours_back))
                 sql += " AND published_at >= ?"
                 params.append(cutoff.isoformat())
             
@@ -343,7 +343,7 @@ class ArticleDB:
             e_rows = conn.execute(f"SELECT id FROM entities WHERE name IN ({placeholders})", entities).fetchall()
             if not e_rows: return []
             eids = [r[0] for r in e_rows]
-            cutoff = (datetime.utcnow() - timedelta(hours=hours_back)).isoformat()
+            cutoff = (datetime.now(datetime.timezone.utc)- timedelta(hours=hours_back)).isoformat()
             placeholders2 = ",".join("?" for _ in eids)
             rows = conn.execute(f"""
                 SELECT a.*
@@ -386,7 +386,7 @@ class ArticleDB:
             
     def log_event(self, user_id: str, article_id: str, event_type: str, dwell_ms: int | None = None, ts: datetime | None = None):
         """Insert a user interaction event."""
-        ts = ts or datetime.utcnow()
+        ts = ts or datetime.now(datetime.timezone.utc)
         conn = sqlite3.connect(self.db_path)
         try:
             conn.execute(
@@ -399,7 +399,7 @@ class ArticleDB:
 
     def get_recent_events(self, user_id: str, days: int = 14, limit: int = 5000) -> list[sqlite3.Row]:
         """Fetch recent events for a user (for preference updates)."""
-        since = (datetime.utcnow() - timedelta(days=days)).isoformat()
+        since = (datetime.now(datetime.timezone.utc)- timedelta(days=days)).isoformat()
         conn = sqlite3.connect(self.db_path)
         conn.row_factory = sqlite3.Row
         try:
@@ -431,7 +431,7 @@ class ArticleDB:
             return
         conn = sqlite3.connect(self.db_path)
         try:
-            now = datetime.utcnow().isoformat()
+            now = datetime.now(datetime.timezone.utc).isoformat()
             for key, delta in deltas.items():
                 prefix = key.split(":", 1)[0] if ":" in key else ""
                 lo, hi = (clip_map.get(prefix) if clip_map and prefix in clip_map else clip)
@@ -485,7 +485,7 @@ class ArticleDB:
         base = {"save": 1.0, "read": 0.5, "skip": -0.3}
    
         deltas: dict[str, float] = {}
-        now = datetime.utcnow()
+        now = datetime.now(datetime.timezone.utc)
 
         for ev in events:
             a = articles_by_id.get(ev["article_id"])

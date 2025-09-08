@@ -187,7 +187,7 @@ class MultiRAGRetriever:
             cache_data = {
                 'index': self.bm25_index,
                 'articles': self.bm25_articles,
-                'created_at': datetime.utcnow().isoformat()
+                'created_at': datetime.now(datetime.timezone.utc).isoformat()
             }
             with open(self.bm25_cache_path, 'wb') as f:
                 pickle.dump(cache_data, f)
@@ -449,7 +449,7 @@ class MultiRAGRetriever:
             if not article:
                 continue
             
-            hours_old = (datetime.utcnow() - article.published_at).total_seconds() / 3600
+            hours_old = (datetime.now(datetime.timezone.utc) - article.published_at).total_seconds() / 3600
             freshness_factor = math.exp(-hours_old / self.config.freshness_decay_hours)
             
             boosted_score = score + (freshness_factor * self.config.freshness_weight)
@@ -680,7 +680,7 @@ class MultiRAGRetriever:
         scored_results = []
         for article in recent_articles:
             urgency_score = article.urgency_score
-            hours_old = (datetime.utcnow() - article.published_at).total_seconds() / 3600
+            hours_old = (datetime.now(datetime.timezone.utc)- article.published_at).total_seconds() / 3600
             freshness_score = max(0, 1 - (hours_old / 6))
             
             final_score = (urgency_score * RAGConfig.breaking_news_urgency_coeff)+ (freshness_score * RAGConfig.breaking_news_freshness_coeff)
@@ -834,7 +834,7 @@ class MultiRAGRetriever:
         if query.text.lower() in article.title.lower():
             reasons.append("matches your search terms")
         
-        hours_old = (datetime.utcnow() - article.published_at).total_seconds() / 3600
+        hours_old = (datetime.now(datetime.timezone.utc) - article.published_at).total_seconds() / 3600
         if hours_old < 6:
             reasons.append("breaking news")
         elif hours_old < 24:
