@@ -75,19 +75,37 @@ class RAGConfig:
     
     max_entities_per_article: int = 10
     max_topics_per_article:   int = 10
-    
-import re
-import nltk
-from nltk.corpus import stopwords
-from nltk.stem.porter import PorterStemmer
-STOP = set(stopwords.words("english"))
-STEM = PorterStemmer()
 
-def _tokenize(text: str) -> list[str]:
-    # keep words, strip punctuation, normalize
-    words = re.findall(r"[A-Za-z0-9]+", (text or "").lower())
-    # drop stopwords and very short tokens, optional stemming
-    return [STEM.stem(w) for w in words if w not in STOP and len(w) > 2]
+import nltk
+from nltk.stem import PorterStemmer
+from nltk.tokenize import word_tokenize
+from gensim.parsing.preprocessing import STOPWORDS as GENSIM_STOPWORDS
+nltk.download("punkt")
+
+_STEM = PorterStemmer()
+
+def _tokenize(text: str) -> List[str]:
+    """
+    BM25 tokenizer using:
+    - NLTK word_tokenize
+    - lowercasing
+    - gensim STOPWORDS removal
+    - Porter stemming
+    """
+    if not text:
+        return []
+
+    # Lowercase and tokenize
+    toks = word_tokenize(text.lower())
+
+    # Remove stopwords using gensim's list
+    toks = [t for t in toks if t not in GENSIM_STOPWORDS]
+
+    # Stem each token
+    toks = [_STEM.stem(t) for t in toks if t.isalnum()]
+
+    return toks
+
     
 class MultiRAGRetriever:
     """Enhanced RAG system with caching, cross-encoder, and graph features"""
