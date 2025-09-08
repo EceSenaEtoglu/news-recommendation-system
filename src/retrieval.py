@@ -51,17 +51,20 @@ class RAGConfig:
     entity_boost_weight: float = 0.15
     
     # CONFIGS FOR NEWS CLASSIFICATION
-    BREAKING_NEWS_URGENCY_COEFF= 0.7
-    BREAKING_NEWS_FRESHNESS_COEFF = 0.3
+    breaking_news_urgency_coeff= 0.7
+    breaking_news_freshness_coeff = 0.3
     
-    BACKGROUND_CONTENT_LENGTH_THRESHOLD: int = 2000
-    BACKGROUND_ANALYSIS_BOOST: float = 1.2
-    BACKGROUND_FEATURE_BOOST: float = 1.0
+    background_content_length_threshold: int = 2000
+    background_analysis_boost: float = 1.2
+    background_feature_boost: float = 1.0
 
     # Content quality weights
-    CONTENT_LENGTH_WEIGHT: float = 0.4
-    SOURCE_CREDIBILITY_WEIGHT: float = 0.3
-    CONTENT_COMPLEXITY_WEIGHT: float = 0.3
+    content_length_weight: float = 0.4
+    source_credibility_weight: float = 0.3
+    content_complexity_weight: float = 0.3
+    
+    max_entities_per_article: int = 10
+    max_topics_per_article:   int = 10
     
 import re
 import nltk
@@ -648,7 +651,7 @@ class MultiRAGRetriever:
             hours_old = (datetime.utcnow() - article.published_at).total_seconds() / 3600
             freshness_score = max(0, 1 - (hours_old / 6))
             
-            final_score = (urgency_score * RAGConfig.BREAKING_NEWS_URGENCY_COEFF)+ (freshness_score * RAGConfig.BREAKING_NEWS_FRESHNESS_COEFF)
+            final_score = (urgency_score * RAGConfig.breaking_news_urgency_coeff)+ (freshness_score * RAGConfig.breaking_news_freshness_coeff)
             scored_results.append((article.id, final_score, article))
         
         # sort based on reverse final_score to get the most recent news
@@ -685,9 +688,9 @@ class MultiRAGRetriever:
             
             # Content type boost based on configuration
             if article.content_type == ContentType.ANALYSIS:
-                content_boost = self.config.BACKGROUND_ANALYSIS_BOOST
+                content_boost = self.config.background_analysis_boost
             else:  # ContentType.FEATURE
-                content_boost = self.config.BACKGROUND_FEATURE_BOOST
+                content_boost = self.config.background_feature_boost
             
             final_score = content_quality_score * content_boost
             scored_results.append((article.id, final_score, article))
@@ -699,7 +702,7 @@ class MultiRAGRetriever:
        """Calculate multi-factor content quality score"""
        
        # 1. Length-based quality (longer = more comprehensive)
-       length_score = min(1.0, len(article.content) / self.config.BACKGROUND_CONTENT_LENGTH_THRESHOLD)
+       length_score = min(1.0, len(article.content) / self.config.background_content_length_threshold)
        
        # 2. Source credibility (Reuters > Fox News > Unknown)
        credibility_score = article.source.credibility_score  # Already 0-1 range
@@ -709,9 +712,9 @@ class MultiRAGRetriever:
        
        # Weighted combination
        quality_score = (
-           length_score * self.config.CONTENT_LENGTH_WEIGHT +
-           credibility_score * self.config.SOURCE_CREDIBILITY_WEIGHT +
-           complexity_score * self.config.CONTENT_COMPLEXITY_WEIGHT
+           length_score * self.config.content_length_weight +
+           credibility_score * self.config.source_credibility_weight +
+           complexity_score * self.config.content_complexity_weight
        )
        
        return min(1.0, quality_score)  # Ensure max score is 1.0
