@@ -2,7 +2,7 @@ import sqlite3
 import json
 from datetime import datetime
 from typing import List, Optional
-from .models import Article, Source, ContentType, TargetAudience
+from .data_models import Article, Source, ContentType, TargetAudience
 from datetime import datetime, timedelta
 from math import exp
 from.retrieval import RAGConfig

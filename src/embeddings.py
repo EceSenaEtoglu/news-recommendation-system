@@ -4,7 +4,7 @@ import numpy as np
 import faiss
 from sentence_transformers import SentenceTransformer
 from typing import List, Tuple, Optional
-from .models import Article
+from .data_models import Article
 from .storage import ArticleDB
 
 class EmbeddingSystem:

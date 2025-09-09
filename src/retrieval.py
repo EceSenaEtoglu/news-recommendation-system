@@ -7,7 +7,7 @@ from typing import List, Dict, Tuple, Optional
 from dataclasses import dataclass
 from rank_bm25 import BM25Okapi
 
-from .models import Article, UserProfile, SearchQuery, SearchResult, ContentType, TargetAudience
+from .data_models import Article, UserProfile, SearchQuery, SearchResult, ContentType, TargetAudience
 from .storage import ArticleDB
 from .embeddings import EmbeddingSystem
 import spacy

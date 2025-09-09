@@ -5,7 +5,7 @@ from datetime import datetime
 from typing import List
 from .providers import create_provider
 from .storage import ArticleDB
-from .models import Article
+from .data_models import Article
 
 import spacy
 _NER = spacy.load("en_core_web_sm")

@@ -2,7 +2,7 @@
 from abc import ABC, abstractmethod
 from typing import List, Optional
 from datetime import datetime
-from ..models import Article, Source
+from ..data_models import Article, Source
 
 class ArticleProvider(ABC):
     """Base class for article providers"""
