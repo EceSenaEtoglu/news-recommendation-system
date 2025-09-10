@@ -1,10 +1,10 @@
 # src/providers/fixtures.py
 from __future__ import annotations
 import json, glob, hashlib, random
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict, Any, Tuple
 from datetime import datetime, timezone
 from .base import ArticleProvider
-from ..data_models import Article, Source, ContentType, TargetAudience
+from ..data_models import Article, Source, ContentType
 
 try:
     from dateutil import parser as dateparser
@@ -46,7 +46,7 @@ class FixtureProvider(ArticleProvider):
 
     def __init__(
         self,
-        folder: str = "data/news_fixtures",
+        folder: str = "src/providers/news_fixtures",
         *,
         language: str = "en",
         shuffle: bool = True,
@@ -122,6 +122,67 @@ class FixtureProvider(ArticleProvider):
                     break
         return out
 
+    async def fetch_featured_and_candidates(
+        self,
+        *,
+        featured_limit: int = 2,
+        candidate_limit: int = 50,
+        q: Optional[str] = None,
+    ) -> Tuple[List[Article], List[Article]]:
+        """Return two lists: (featured, candidates).
+        - Featured are loaded from featured.json if present; otherwise first N fixtures.
+        - Candidates are other articles (excluding featured) for recommendation.
+        """
+        # Load all fixtures
+        paths = sorted(glob.glob(f"{self.folder}/*.json"))
+        items: List[Dict[str, Any]] = []
+        for p in paths:
+            try:
+                with open(p, "r", encoding="utf-8") as f:
+                    chunk = json.load(f)
+                    if isinstance(chunk, list):
+                        items.extend(chunk)
+            except Exception as e:
+                print(f"[FixtureProvider] failed to read {p}: {e}")
+
+        # Optional shuffle for non-featured pool
+        pool_items = list(items)
+
+        # Try to load explicit featured file
+        featured_items: List[Dict[str, Any]] = []
+        fpath = f"{self.folder}/featured.json"
+        try:
+            with open(fpath, "r", encoding="utf-8") as f:
+                fj = json.load(f)
+                if isinstance(fj, list):
+                    featured_items = fj[:featured_limit]
+        except Exception:
+            # Fall back to first N items deterministically
+            featured_items = pool_items[:featured_limit]
+
+        # Convert and filter
+        def _to_list(dicts: List[Dict[str, Any]], lim: int) -> List[Article]:
+            out: List[Article] = []
+            for d in dicts:
+                a = self._to_article(d)
+                if a:
+                    out.append(a)
+                    if len(out) >= lim:
+                        break
+            return out
+
+        featured = _to_list(featured_items, featured_limit)
+
+        # Build candidate pool excluding featured ids
+        featured_ids = {a.get("link") or a.get("url") or a.get("title") for a in featured_items}
+        pool_filtered = [d for d in pool_items if (d.get("link") or d.get("url") or d.get("title")) not in featured_ids]
+
+        if self.shuffle:
+            self.rng.shuffle(pool_filtered)
+
+        candidates_all = _to_list(pool_filtered, candidate_limit)
+        return featured, candidates_all
+
     def get_sources(self) -> List[Source]:
         # Optional: derive a unique set of sources by scanning fixtures.
         return []
@@ -175,7 +236,6 @@ class FixtureProvider(ArticleProvider):
             source=src,
             published_at=published_at,
             author=author,
-            content_type=ContentType.factual,
-            target_audience=TargetAudience.general,
+            content_type=ContentType.FACTUAL,
             topics=[category],  # map category → topics for free “topic” signal
         )

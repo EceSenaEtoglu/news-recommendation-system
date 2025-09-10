@@ -1,0 +1,63 @@
+[
+  {
+    "title": "Open-source community releases new LLM evaluation toolkit",
+    "description": "Toolkit standardizes prompts and metrics for fair model comparison.",
+    "content": "The OSS community announced a new evaluation suite that enables reproducible LLM benchmarking across reasoning and safety tasks...",
+    "url": "https://example.com/oss-eval",
+    "image_url": "https://example.com/images/oss-eval.jpg",
+    "source": "OpenAI News",
+    "source_id": "openai-news",
+    "source_url": "https://news.openai.example.com",
+    "language": "en",
+    "country": "us",
+    "category": "technology",
+    "pubDate": "2025-09-08T08:00:00Z",
+    "creator": ["M. Patel"]
+  },
+  {
+    "title": "EU proposes framework for AI transparency in news feeds",
+    "description": "Draft bill outlines disclosure for recommendation algorithms.",
+    "content": "A new proposal would require platforms to explain ranking signals and allow opt-out from algorithmic personalization, aiming to curb misinformation...",
+    "url": "https://example.com/eu-ai-transparency",
+    "image_url": "https://example.com/images/eu-ai.jpg",
+    "source": "Policy Watch",
+    "source_id": "policywatch",
+    "source_url": "https://policywatch.example.com",
+    "language": "en",
+    "country": "eu",
+    "category": "policy",
+    "pubDate": "2025-09-07T15:45:00Z",
+    "creator": ["Laura Rossi"]
+  },
+  {
+    "title": "Breakthrough in battery tech extends EV range",
+    "description": "Solid-state prototype demonstrates higher energy density.",
+    "content": "An engineering team reported a solid-state chemistry that reduces dendrite formation and increases cycle life, potentially extending EV ranges by 30%...",
+    "url": "https://example.com/ev-battery",
+    "image_url": "https://example.com/images/ev-battery.jpg",
+    "source": "Science Today",
+    "source_id": "sciencetoday",
+    "source_url": "https://sciencetoday.example.com",
+    "language": "en",
+    "country": "us",
+    "category": "science",
+    "pubDate": "2025-09-06T10:20:00Z",
+    "creator": ["Dr. Nguyen"]
+  },
+  {
+    "title": "Markets react to unexpected rate decision",
+    "description": "Central bank signals longer tightening cycle.",
+    "content": "Equities fell as the central bank surprised markets with a hold and hawkish guidance, pushing yields higher across the curve...",
+    "url": "https://example.com/markets-rate-decision",
+    "image_url": "https://example.com/images/markets.jpg",
+    "source": "Finance Beat",
+    "source_id": "financebeat",
+    "source_url": "https://financebeat.example.com",
+    "language": "en",
+    "country": "us",
+    "category": "business",
+    "pubDate": "2025-09-05T14:05:00Z",
+    "creator": ["S. Rivera"]
+  }
+]
+

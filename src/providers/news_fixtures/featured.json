@@ -1,0 +1,33 @@
+[
+  {
+    "title": "AI model sets new benchmark on NLP tasks",
+    "description": "A compact model achieves state-of-the-art on multiple benchmarks.",
+    "content": "Researchers unveiled a lightweight transformer that matches SOTA accuracy with lower latency and memory. The team reports improvements on GLUE and SuperGLUE while reducing inference cost...",
+    "url": "https://example.com/ai-sota",
+    "image_url": "https://example.com/images/ai-sota.jpg",
+    "source": "Tech Daily",
+    "source_id": "techdaily",
+    "source_url": "https://techdaily.example.com",
+    "language": "en",
+    "country": "us",
+    "category": "technology",
+    "pubDate": "2025-09-09T09:00:00Z",
+    "creator": ["Jane Smith"]
+  },
+  {
+    "title": "NVIDIA announces next-gen GPU for AI inference",
+    "description": "New architecture promises better perf-per-watt and lower TCO.",
+    "content": "NVIDIA introduced its latest GPU designed for AI inference workloads with innovations across memory bandwidth and sparsity handling. Early adopters report 2x throughput...",
+    "url": "https://example.com/nvidia-next-gen",
+    "image_url": "https://example.com/images/nvidia-gpu.jpg",
+    "source": "Hardware World",
+    "source_id": "hardwareworld",
+    "source_url": "https://hardwareworld.example.com",
+    "language": "en",
+    "country": "us",
+    "category": "technology",
+    "pubDate": "2025-09-09T12:30:00Z",
+    "creator": ["Alex Chen"]
+  }
+]
+

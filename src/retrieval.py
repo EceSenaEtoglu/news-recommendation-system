@@ -76,6 +76,11 @@ class RAGConfig:
     max_entities_per_article: int = 10
     max_topics_per_article:   int = 10
 
+    # MMR diversification for search results
+    use_mmr_in_search: bool = False
+    mmr_lambda: float = 0.7
+    mmr_pool: int = 50
+
 import nltk
 from nltk.stem import PorterStemmer
 from nltk.tokenize import word_tokenize
@@ -268,13 +273,79 @@ class MultiRAGRetriever:
         else:
             personalized_results = fresh_results
         
-        # Step 8: Ensure source diversity
-        balanced_results = await self._ensure_balance_and_diversity(personalized_results)
+        # Step 8: Optional MMR diversification, then ensure source diversity
+        diversified_results = self._apply_mmr_if_enabled(personalized_results, top_k=100)
+        balanced_results = await self._ensure_balance_and_diversity(diversified_results)
         
         # Step 9: Convert to SearchResult objects
         final_results = self._create_search_results(balanced_results, query, user_profile)
         
         return final_results[:query.limit]
+
+    def _apply_mmr_if_enabled(self, results: List[Tuple[str, float]], top_k: int) -> List[Tuple[str, float]]:
+        """Optionally apply MMR diversification on (article_id, score) list.
+        Returns (article_id, score) reranked and truncated to top_k if enabled.
+        """
+        if not results or not getattr(self.config, "use_mmr_in_search", False):
+            return results
+
+        pool_n = max(top_k, int(getattr(self.config, "mmr_pool", 50)))
+        lambda_ = float(getattr(self.config, "mmr_lambda", 0.7))
+
+        # Truncate pool and fetch article texts
+        pool = sorted(results, key=lambda x: x[1], reverse=True)[:pool_n]
+        pool_ids = [aid for aid, _ in pool]
+        articles = self.db.get_articles_by_ids(pool_ids)
+        id_to_article = {a.id: a for a in articles}
+
+        texts = []
+        kept = []
+        for i, aid in enumerate(pool_ids):
+            a = id_to_article.get(aid)
+            if not a:
+                continue
+            desc = a.description or ""
+            head = (a.content or "")[:500]
+            texts.append(f"{a.title} {desc} {head}")
+            kept.append(i)
+
+        if len(texts) < 2:
+            return pool
+
+        # Encode and normalize for cosine
+        X = self.embeddings.encode_texts(texts).astype('float32', copy=False)
+        X = X / (np.linalg.norm(X, axis=1, keepdims=True) + 1e-12)
+        S = X @ X.T
+        np.fill_diagonal(S, 1.0)
+
+        id_to_score = {aid: s for aid, s in pool}
+        selected_local: List[int] = []
+        remaining_local: List[int] = list(range(len(kept)))
+
+        while remaining_local and len(selected_local) < top_k:
+            best_j = None
+            best_val = -1e9
+            for j in remaining_local:
+                aid = pool_ids[kept[j]]
+                rel = float(id_to_score.get(aid, 0.0))
+                if not selected_local:
+                    val = rel
+                else:
+                    max_sim = max(S[j, t] for t in selected_local)
+                    val = lambda_ * rel - (1.0 - lambda_) * max_sim
+                if val > best_val:
+                    best_val = val
+                    best_j = j
+            selected_local.append(best_j)
+            remaining_local.remove(best_j)
+
+        # Build final sequence
+        final_pairs: List[Tuple[str, float]] = []
+        for j in selected_local:
+            aid = pool_ids[kept[j]]
+            final_pairs.append((aid, id_to_score.get(aid, 0.0)))
+
+        return final_pairs
 
     async def _cross_encoder_rerank(self, query: str, results: List[Tuple[str, float]]) -> List[Tuple[str, float]]:
         """Self-RAG: Rerank results using cross-encoder"""
