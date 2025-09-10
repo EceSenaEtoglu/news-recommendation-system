@@ -10,12 +10,6 @@ class ContentType(Enum):
     FACTUAL = "factual"
     FEATURE = "feature"
 
-class TargetAudience(Enum):
-    GENERAL = "general"
-    BUSINESS = "business"
-    TECH = "tech"
-    SCIENCE = "science"
-    SPORTS = "sports"
 
 @dataclass
 class Source:
@@ -42,9 +36,8 @@ class Article:
     url_to_image: Optional[str] = None
     summary: Optional[str] = None
     
-    # Article level bias detection!
+    # Article level labels
     content_type: ContentType = ContentType.FACTUAL
-    target_audience: TargetAudience = TargetAudience.GENERAL
     urgency_score: float = 0.5  # 0=evergreen, 1=breaking news
     
     
@@ -87,18 +80,6 @@ class Article:
         elif any(word in text for word in analysis_keywords):
             self.content_type = ContentType.ANALYSIS
         
-        # Detect target audience from content
-        business_keywords = ["stock", "market", "earnings", "ceo", "finance", "revenue"]
-        tech_keywords = ["ai", "software", "tech", "startup", "coding", "algorithm", "app"]
-        science_keywords = ["study", "research", "scientists", "discovery", "climate"]
-        
-        if any(word in text for word in business_keywords):
-            self.target_audience = TargetAudience.BUSINESS
-        elif any(word in text for word in tech_keywords):
-            self.target_audience = TargetAudience.TECH
-        elif any(word in text for word in science_keywords):
-            self.target_audience = TargetAudience.SCIENCE
-        
         # Detect urgency from publish time (articles published within 2 hours are "breaking")
         URGENCY_HOUR_INTERVAL = 2
         hours_old = (datetime.now() - self.published_at).total_seconds() / 3600
@@ -113,7 +94,6 @@ class UserProfile:
     preferred_sources: List[str] = field(default_factory=list)
     blocked_sources: List[str] = field(default_factory=list)
     preferred_content_types: List[ContentType] = field(default_factory=list)
-    preferred_audiences: List[TargetAudience] = field(default_factory=list)
     created_at: datetime = field(default_factory=datetime.now)
 
 @dataclass

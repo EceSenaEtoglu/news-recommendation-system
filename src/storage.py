@@ -2,7 +2,7 @@ import sqlite3
 import json
 from datetime import datetime
 from typing import List, Optional
-from .data_models import Article, Source, ContentType, TargetAudience
+from .data_models import Article, Source, ContentType
 from datetime import datetime, timedelta
 from math import exp
 from.retrieval import RAGConfig
@@ -34,9 +34,8 @@ class ArticleDB:
                 source_name TEXT NOT NULL,
                 source_credibility REAL,
                 
-                -- Bias detection
+                -- Labels
                 content_type TEXT,
-                target_audience TEXT,
                 urgency_score REAL,
                 
                 -- Timestamps
@@ -113,10 +112,10 @@ class ArticleDB:
                 INSERT OR REPLACE INTO articles (
                     id, title, content, description, url, author, url_to_image,
                     source_id, source_name, source_credibility,
-                    content_type, target_audience, urgency_score,
+                    content_type, urgency_score,
                     published_at, created_at,
                     embedding, entities, topics
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 article.id,
                 article.title,
@@ -129,7 +128,6 @@ class ArticleDB:
                 article.source.name,
                 article.source.credibility_score,
                 article.content_type.value,
-                article.target_audience.value,
                 article.urgency_score,
                 article.published_at.isoformat(),
                 article.created_at.isoformat(),
@@ -286,7 +284,6 @@ class ArticleDB:
             author=row["author"],
             url_to_image=row["url_to_image"],
             content_type=ContentType(row["content_type"]),
-            target_audience=TargetAudience(row["target_audience"]),
             urgency_score=row["urgency_score"],
             embedding=embedding,
             entities=entities,

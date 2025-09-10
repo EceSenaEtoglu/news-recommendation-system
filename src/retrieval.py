@@ -7,7 +7,7 @@ from typing import List, Dict, Tuple, Optional
 from dataclasses import dataclass
 from rank_bm25 import BM25Okapi
 
-from .data_models import Article, UserProfile, SearchQuery, SearchResult, ContentType, TargetAudience
+from .data_models import Article, UserProfile, SearchQuery, SearchResult, ContentType
 from .storage import ArticleDB
 from .embeddings import EmbeddingSystem
 import spacy
@@ -41,7 +41,7 @@ class RAGConfig:
     personalization_weight: float = 0.10
     topic_string_weight : float = 0.05
     content_type_bonus : float = 0.10
-    audience_bonus : 0.10
+    # audience removed
     per_source_repeat_penalty = 0.02
     # Personlization clamp
     personalization_cap = (-0.5, 0.8)
@@ -469,7 +469,6 @@ class MultiRAGRetriever:
             - user_id: to fetch stored prefs from DB (ent:*, topic:*).
             - preferred_topics: keywords used if no learned topic prefs are found.
             - preferred_content_types: adds a fixed bonus when article content_type matches.
-            - preferred_audiences: adds a fixed bonus when article target_audience matches.
 
         LOGIC
         1) sum learned entity weights if learned, clamp to [-2, 2],
@@ -477,7 +476,7 @@ class MultiRAGRetriever:
         2) sum topic weights
         - If learned: add learned topic weights.
         - Else: add +1.0 per default user preferred topic match.
-        3) add fixed boosts if content_type or audience matches.
+        3) add fixed boost if content_type matches.
         4) Diversity: small penalty if the same source repeats.
         5) Combine all deltas, clamp total personalization
         (default cap = [-0.5, 0.8]).
@@ -505,7 +504,7 @@ class MultiRAGRetriever:
         entity_weight_constant = getattr(self.config, "personalization_weight", 0.10)   # scales learned prefs
         topic_weight_constant = getattr(self.config, "topic_string_weight", 0.05)     # scales title/desc topic hits
         bonus_content_type = getattr(self.config, "content_type_bonus", 0.10)
-        bonus_audience = getattr(self.config, "audience_bonus", 0.10)
+        # audience removed
         repeat_src_penalty = getattr(self.config, "per_source_repeat_penalty", 0.02)
 
         scored: List[Tuple[str, float]] = []
@@ -554,7 +553,6 @@ class MultiRAGRetriever:
 
             # 3) Simple categorical bonuses
             ctype_b = bonus_content_type if a.content_type in (user_profile.preferred_content_types or []) else 0.0
-            aud_b = bonus_audience if a.target_audience in (user_profile.preferred_audiences or []) else 0.0
 
             # 4) Source diversity nudge (tiny penalty for repeats in the list)
             src_name = getattr(getattr(a, "source", None), "name", None)
@@ -564,7 +562,7 @@ class MultiRAGRetriever:
             raw_delta = (
                 entity_weight_constant * ent_delta      # learned per-entity prefs (already ±2 clamped)
                 + topic_weight_constant * topic_delta # topic string matches
-                + ctype_b + aud_b          # categorical bonuses
+                + ctype_b                 # categorical bonus
             )
 
             # clamp the total personalization bump so that base_score is the dominant score
@@ -848,8 +846,7 @@ class MultiRAGRetriever:
         if article.source.credibility_score > 0.8:
             reasons.append("from trusted source")
         
-        if user_profile and article.target_audience in user_profile.preferred_audiences:
-            reasons.append("matches your interests")
+        # audience removed
             
         # Entity explanation: show up to two seed entities present in this article
         seed = set(self._ner_entities_from_text(query.text))

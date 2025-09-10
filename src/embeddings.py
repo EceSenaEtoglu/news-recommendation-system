@@ -96,7 +96,6 @@ class EmbeddingSystem:
                 "source": article.source.name,
                 "published_at": article.published_at.isoformat(),
                 "content_type": article.content_type.value,
-                "target_audience": article.target_audience.value,
                 "urgency_score": article.urgency_score,
                 "url": article.url
             }
