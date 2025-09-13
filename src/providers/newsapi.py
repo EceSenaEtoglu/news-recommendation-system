@@ -3,7 +3,7 @@ import requests
 from datetime import datetime
 from typing import List, Optional
 from .base import ArticleProvider
-from ..data_models import Article, Source, ContentType, TargetAudience
+from ..data_models import Article, Source, ContentType
 from datetime import timezone
 
 # TODO, match it with the API calls!

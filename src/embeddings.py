@@ -3,45 +3,178 @@ import pickle
 import numpy as np
 import faiss
 from sentence_transformers import SentenceTransformer
-from typing import List, Tuple, Optional
+from typing import List, Tuple, Optional, Dict, Union
+from dataclasses import dataclass
 from .data_models import Article
-from .storage import ArticleDB
+
+
+@dataclass
+class EmbeddingModelConfig:
+    """Configuration for embedding models"""
+    name: str
+    model_path: str
+    dimension: int
+    description: str
+    is_news_specific: bool = False
 
 class EmbeddingSystem:
-    """Handles embeddings and semantic search using FAISS"""
+    """Handles embeddings and semantic search using FAISS with multi-model support"""
     
     def __init__(self, 
                  model_name: str = "all-MiniLM-L6-v2",
                  index_path: str = "db/faiss.index",
                  metadata_path: str = "db/faiss_metadata.pkl"):
         
-        # Load sentence transformer model
-        print(f" Loading embedding model: {model_name}")
-        self.model = SentenceTransformer(model_name)
-        self.embedding_dim = self.model.get_sentence_embedding_dimension()
-        
         self.index_path = index_path
         self.metadata_path = metadata_path
         
-        # Initialize FAISS index
-        self.index = faiss.IndexFlatIP(self.embedding_dim)  # Inner Product (cosine similarity)
+        # Available embedding models
+        self.available_models = {
+            "all-MiniLM-L6-v2": EmbeddingModelConfig(
+                name="all-MiniLM-L6-v2",
+                model_path="sentence-transformers/all-MiniLM-L6-v2",
+                dimension=384,
+                description="Fast general-purpose model"
+            ),
+            "all-mpnet-base-v2": EmbeddingModelConfig(
+                name="all-mpnet-base-v2", 
+                model_path="sentence-transformers/all-mpnet-base-v2",
+                dimension=768,
+                description="High-quality general-purpose model"
+            ),
+            "news-similarity": EmbeddingModelConfig(
+                name="news-similarity",
+                model_path="Blablablab/newsSimilarity",
+                dimension=768,
+                description="News-specific similarity model",
+                is_news_specific=True
+            ),
+            "paraphrase-multilingual": EmbeddingModelConfig(
+                name="paraphrase-multilingual",
+                model_path="sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+                dimension=384,
+                description="Multilingual model"
+            ),
+            "msmarco-distilbert": EmbeddingModelConfig(
+                name="msmarco-distilbert",
+                model_path="sentence-transformers/msmarco-distilbert-base-v4",
+                dimension=768,
+                description="MS MARCO fine-tuned for search"
+            )
+        }
         
-        # Metadata: article_id -> article info mapping
+        # Initialize primary model
+        self.primary_model_name = model_name
+        self.models: Dict[str, SentenceTransformer] = {}
+        self.current_model = self._load_model(model_name)
+        
+        # FAISS index
+        self.index = None
         self.id_to_metadata = {}
+        self.article_id_to_faiss_id = {}
         
-        # reverse mapping for faster access
-        self.article_id_to_faiss_id = {}  
-
-        # Load existing index if available
+        # Load existing index
         self.load_index()
     
-    def encode_text(self, text: str) -> np.ndarray:
-        """Encode text to embedding vector"""
-        return self.model.encode(text, convert_to_numpy=True)
+    def _load_model(self, model_name: str) -> SentenceTransformer:
+        """Load a specific embedding model"""
+        if model_name in self.models:
+            return self.models[model_name]
+        
+        config = self.available_models[model_name]
+        print(f"Loading embedding model: {config.description}")
+        
+        try:
+            model = SentenceTransformer(config.model_path)
+            self.models[model_name] = model
+            return model
+        except Exception as e:
+            print(f"Failed to load model {model_name}: {e}")
+            # Fallback to default model
+            if model_name != "all-MiniLM-L6-v2":
+                return self._load_model("all-MiniLM-L6-v2")
+            raise
     
-    def encode_texts(self, texts: List[str]) -> np.ndarray:
+    def switch_model(self, model_name: str) -> bool:
+        """Switch to a different embedding model"""
+        if model_name not in self.available_models:
+            print(f"Model {model_name} not available")
+            return False
+        
+        try:
+            self.current_model = self._load_model(model_name)
+            self.primary_model_name = model_name
+            print(f"Switched to model: {self.available_models[model_name].description}")
+            return True
+        except Exception as e:
+            print(f"Failed to switch to model {model_name}: {e}")
+            return False
+    
+    def get_model_info(self) -> Dict[str, str]:
+        """Get information about available models"""
+        return {name: config.description for name, config in self.available_models.items()}
+    
+    def encode_text(self, text: str, model_name: Optional[str] = None) -> np.ndarray:
+        """Encode text using specified model or current model"""
+        model = self.current_model if model_name is None else self._load_model(model_name)
+        return model.encode(text, convert_to_numpy=True)
+    
+    def encode_texts(self, texts: List[str], model_name: Optional[str] = None) -> np.ndarray:
         """Encode multiple texts efficiently"""
-        return self.model.encode(texts, convert_to_numpy=True, show_progress_bar=True)
+        model = self.current_model if model_name is None else self._load_model(model_name)
+        return model.encode(texts, convert_to_numpy=True, show_progress_bar=True)
+    
+    def multi_model_search(self, 
+                          query: str, 
+                          models: List[str], 
+                          k: int = 10,
+                          fusion_method: str = "weighted_average") -> List[Tuple[str, float]]:
+        """
+        Perform search using multiple models and fuse results.
+        
+        Args:
+            query: Search query
+            models: List of model names to use
+            k: Number of results per model
+            fusion_method: "weighted_average", "rank_fusion", or "max_score"
+        """
+        all_results = {}
+        
+        for model_name in models:
+            if model_name not in self.available_models:
+                continue
+            
+            results = self.semantic_search(query, k=k, model_name=model_name)
+            
+            if fusion_method == "weighted_average":
+                # Weight news-specific models higher
+                weight = 1.5 if self.available_models[model_name].is_news_specific else 1.0
+                for article_id, score in results:
+                    if article_id in all_results:
+                        all_results[article_id] = (all_results[article_id] + score * weight) / 2
+                    else:
+                        all_results[article_id] = score * weight
+            
+            elif fusion_method == "rank_fusion":
+                # Reciprocal rank fusion
+                for rank, (article_id, score) in enumerate(results):
+                    rrf_score = 1.0 / (rank + 1)
+                    if article_id in all_results:
+                        all_results[article_id] += rrf_score
+                    else:
+                        all_results[article_id] = rrf_score
+            
+            elif fusion_method == "max_score":
+                # Take maximum score across models
+                for article_id, score in results:
+                    if article_id in all_results:
+                        all_results[article_id] = max(all_results[article_id], score)
+                    else:
+                        all_results[article_id] = score
+        
+        # Sort by score and return top k
+        sorted_results = sorted(all_results.items(), key=lambda x: x[1], reverse=True)
+        return sorted_results[:k]
     
     # add articles to faiss index by constructing faiss id for each article
     # construct self.id_to_metadata[faiss_id] for each faiss_id created 
@@ -108,15 +241,16 @@ class EmbeddingSystem:
     def semantic_search(self, 
                        query: str, 
                        k: int = 10,
-                       score_threshold: float = 0.0) -> List[Tuple[str, float]]:
+                       score_threshold: float = 0.0,
+                       model_name: Optional[str] = None) -> List[Tuple[str, float]]:
         """Semantic search using FAISS, provides min k candidates that match given threshold
         If no threshold specified, default filters out negative cosine similarities,
         ensuring only semantically similar (not opposite) articles are returned."""
-        if self.index.ntotal == 0:
+        if self.index is None or self.index.ntotal == 0:
             return []
         
         # Encode query
-        query_embedding = self.encode_text(query).astype('float32', copy=False).reshape(1, -1)
+        query_embedding = self.encode_text(query, model_name).astype('float32', copy=False).reshape(1, -1)
         query_embedding = np.ascontiguousarray(query_embedding)
         faiss.normalize_L2(query_embedding)
 
@@ -176,7 +310,7 @@ class EmbeddingSystem:
                 
         except Exception as e:
             print(f" Could not load existing index: {e}")
-            self.index = faiss.IndexFlatIP(self.embedding_dim)
+            self.index = faiss.IndexFlatIP(self.current_model.get_sentence_embedding_dimension())
             self.id_to_metadata = {}
             self.article_id_to_faiss_id = {}
 
@@ -185,18 +319,18 @@ class EmbeddingSystem:
         """Get embedding system statistics"""
         return {
             "total_vectors": self.index.ntotal,
-            "embedding_dimension": self.embedding_dim,
+            "embedding_dimension": self.current_model.get_sentence_embedding_dimension(),
             "model_name": self.model.model_name if hasattr(self.model, 'model_name') else "unknown",
             "index_type": "IndexFlatIP",
             "metadata_entries": len(self.id_to_metadata)
         }
     
-    def rebuild_index_from_db(self, db: ArticleDB):
+    def rebuild_index_from_db(self, db):
         """Rebuild the entire index from database articles"""
         print(" Rebuilding semantic index from database...")
         
         # Clear existing index
-        self.index = faiss.IndexFlatIP(self.embedding_dim)
+        self.index = faiss.IndexFlatIP(self.current_model.get_sentence_embedding_dimension())
         self.id_to_metadata = {}
         self.article_id_to_faiss_id = {}
         
@@ -220,6 +354,8 @@ class EmbeddingSystem:
 
 def build_embeddings_from_db(db_path: str = "db/articles.db"):
     """Utility function to build embeddings from existing database"""
+    # Deferred import to avoid circular dependency at module import time
+    from .storage import ArticleDB  
     db = ArticleDB(db_path)
     embeddings = EmbeddingSystem()
     

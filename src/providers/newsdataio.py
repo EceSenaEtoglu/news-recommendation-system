@@ -6,7 +6,7 @@ from typing import List, Optional, Dict, Any
 from datetime import datetime, timezone
 
 from .base import ArticleProvider
-from ..models import Article, Source, ContentType, TargetAudience
+from ..data_models import Article, Source, ContentType
 
 try:
     # robust parsing for various pubDate formats (ISO/RFC-2822)
@@ -164,7 +164,6 @@ class NewsDataIOProvider(ArticleProvider):
             published_at=published_at,        # tz-aware UTC
             author=author,
             content_type=ContentType.FACTUAL, # default; classifier can overwrite
-            target_audience=TargetAudience.GENERAL,
             topics=[category],                # ← map NewsData category to Article.topics
         )
 

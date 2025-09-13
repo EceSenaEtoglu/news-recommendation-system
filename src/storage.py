@@ -1,13 +1,9 @@
 import sqlite3
 import json
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import List, Optional
 from .data_models import Article, Source, ContentType
-from datetime import datetime, timedelta
-from math import exp
-from.retrieval import RAGConfig
 
-# TODO match with the actual api call
 # TODO for simplicity did not use ORM, use ORM in the future
 class ArticleDB:
     """Simple SQLite storage for articles"""
@@ -67,30 +63,6 @@ class ArticleDB:
         )
         """)
         
-        # --- User events: read/save/skip with optional dwell time
-        conn.execute("""
-        CREATE TABLE IF NOT EXISTS events(
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        user_id TEXT NOT NULL,
-        article_id TEXT NOT NULL,
-        event_type TEXT NOT NULL CHECK(event_type IN ('read','save','skip')),
-        dwell_ms INTEGER,
-        ts TEXT NOT NULL
-        )
-        """)
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_events_user_ts ON events(user_id, ts)")
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_events_article ON events(article_id)")
-
-        # --- Learned preferences (keyed by user + preference key)
-        conn.execute("""
-        CREATE TABLE IF NOT EXISTS user_prefs(
-        user_id TEXT NOT NULL,
-        key TEXT NOT NULL,           -- e.g. 'ent:nvidia'
-        weight REAL NOT NULL,
-        updated_at TEXT NOT NULL,
-        PRIMARY KEY(user_id, key)
-        )
-        """)
 
         # Create index for faster searches
         conn.execute("CREATE INDEX IF NOT EXISTS idx_entities_name ON entities(name)")
@@ -177,7 +149,7 @@ class ArticleDB:
         
         try:
             # Build SQL query
-            # TODO what is 1 = 1?
+            # trick, get all articles regardless of the filters
             sql = "SELECT * FROM articles WHERE 1=1"
             params = []
             
@@ -202,7 +174,8 @@ class ArticleDB:
             # Recent articles only
             if hours_back > 0:
                 from datetime import timedelta
-                cutoff = (datetime.now(datetime.timezone.utc)- timedelta(hours=hours_back))
+                from datetime import timezone
+                cutoff = (datetime.now(timezone.utc)- timedelta(hours=hours_back))
                 sql += " AND published_at >= ?"
                 params.append(cutoff.isoformat())
             
@@ -381,160 +354,6 @@ class ArticleDB:
         finally:
             conn.close()
             
-    def log_event(self, user_id: str, article_id: str, event_type: str, dwell_ms: int | None = None, ts: datetime | None = None):
-        """Insert a user interaction event."""
-        ts = ts or datetime.now(datetime.timezone.utc)
-        conn = sqlite3.connect(self.db_path)
-        try:
-            conn.execute(
-                "INSERT INTO events(user_id, article_id, event_type, dwell_ms, ts) VALUES(?,?,?,?,?)",
-                (user_id, article_id, event_type, dwell_ms, ts.isoformat())
-            )
-            conn.commit()
-        finally:
-            conn.close()
-
-    def get_recent_events(self, user_id: str, days: int = 14, limit: int = 5000) -> list[sqlite3.Row]:
-        """Fetch recent events for a user (for preference updates)."""
-        since = (datetime.now(datetime.timezone.utc)- timedelta(days=days)).isoformat()
-        conn = sqlite3.connect(self.db_path)
-        conn.row_factory = sqlite3.Row
-        try:
-            rows = conn.execute(
-                "SELECT * FROM events WHERE user_id = ? AND ts >= ? ORDER BY ts DESC LIMIT ?",
-                (user_id, since, limit)
-            ).fetchall()
-            return rows
-        finally:
-            conn.close()
-
-    def get_user_prefs(self, user_id: str) -> dict[str, float]:
-        """Return {pref_key: weight} for a user."""
-        conn = sqlite3.connect(self.db_path)
-        try:
-            rows = conn.execute("SELECT key, weight FROM user_prefs WHERE user_id = ?", (user_id,)).fetchall()
-            return {k: float(w) for (k, w) in rows}
-        finally:
-            conn.close()
-
-    def upsert_user_pref_weights(
-    self, user_id: str, deltas: dict[str, float], clip: tuple[float,float] = (-2.0, 2.0),clip_map: dict[str, tuple[float,float]] | None = None):
-        """
-        Incrementally update preference weights with clipping.
-        - clip: default clip if prefix not found in clip_map
-        - clip_map: optional per-prefix clip, e.g. {'ent': (-2, 2), 'topic': (-1.5, 1.5)}
-        """
-        if not deltas:
-            return
-        conn = sqlite3.connect(self.db_path)
-        try:
-            now = datetime.now(datetime.timezone.utc).isoformat()
-            for key, delta in deltas.items():
-                prefix = key.split(":", 1)[0] if ":" in key else ""
-                lo, hi = (clip_map.get(prefix) if clip_map and prefix in clip_map else clip)
-
-                row = conn.execute(
-                    "SELECT weight FROM user_prefs WHERE user_id=? AND key=?",
-                    (user_id, key)
-                ).fetchone()
-                if row:
-                    new_w = max(lo, min(hi, float(row[0]) + float(delta)))
-                    conn.execute(
-                        "UPDATE user_prefs SET weight=?, updated_at=? WHERE user_id=? AND key=?",
-                        (new_w, now, user_id, key)
-                    )
-                else:
-                    new_w = max(lo, min(hi, float(delta)))
-                    conn.execute(
-                        "INSERT INTO user_prefs(user_id, key, weight, updated_at) VALUES(?,?,?,?)",
-                        (user_id, key, new_w, now)
-                    )
-            conn.commit()
-        finally:
-            conn.close()
-
-
-    def recompute_prefs_from_events(self, user_id: str, days: int = 14):
-        """
-        Rebuild per-entity and per-topic preference weights from recent user events.
-        Uses separate learning rates and clip ranges for entities vs topics.
-
-        SIGNALS & SCORING
-        -----------------
-        delta = base_weight(event) * exp(-hours_since_pub / (4*24)) * dwell_factor
-        - base_weight: save=+1.0, read=+0.5, skip=-0.3
-        - freshness: 4-day time constant (0h=1.0, 1d≈0.78, 4d≈0.37, 8d≈0.14)
-        - dwell_factor: 1.0 if dwell_ms<=0 else min(1.5, 0.5 + dwell_ms/30000)
-
-        LEARNING
-        --------
-        - Entities: LR=1.0, clip [-2.0, 2.0]
-        - Topics:   LR=0.5, clip [-1.5, 1.5]
-        - Per-article: normalize → dedup (order-preserving) → cap to 10.
-        """
-        events = self.get_recent_events(user_id, days=days)
-        if not events:
-            return
-
-        article_ids = list({row["article_id"] for row in events})
-        articles_by_id = {a.id: a for a in self.get_articles_by_ids(article_ids)}
-
-        base = {"save": 1.0, "read": 0.5, "skip": -0.3}
-   
-        deltas: dict[str, float] = {}
-        now = datetime.now(datetime.timezone.utc)
-
-        for ev in events:
-            a = articles_by_id.get(ev["article_id"])
-            if not a:
-                continue
-
-            pub = getattr(a, "published_at", None)
-            if pub and isinstance(pub, datetime):
-                hours = max(1.0, (now - pub).total_seconds() / 3600.0)
-            else:
-                hours = 24.0  # safe fallback
-
-            fresh = exp(-hours / (RAGConfig.freshness_decay_exp_constant * 24.0))
-
-            dwell_ms = ev["dwell_ms"] or 0
-            dwell_factor = 1.0 if dwell_ms <= 0 else min(1.5, 0.5 + (dwell_ms / 30000.0))
-
-            delta = base.get(ev["event_type"], 0.0) * fresh * dwell_factor
-            if delta == 0.0:
-                continue
-
-            # Normalize first, then dedup, then cap.
-            ents_raw   = (getattr(a, "entities", None) or [])
-            topics_raw = (getattr(a, "topics", None) or [])
-            ents_norm   = [str(e or "").strip().lower() for e in ents_raw if e is not None]
-            topics_norm = [str(t or "").strip().lower() for t in topics_raw if t]
-            ents   = list(dict.fromkeys(ents_norm))[:RAGConfig.max_entities_per_article]
-            topics = list(dict.fromkeys(topics_norm))[:RAGConfig.max_topics_per_article]
-
-            for e in ents:
-                key = f"ent:{e}"
-                deltas[key] = deltas.get(key, 0.0) + RAGConfig.entity_lr* delta
-
-            for t in topics:
-                key = f"topic:{t}"
-                deltas[key] = deltas.get(key, 0.0) + RAGConfig.topic_lr* delta
-
-        # Fresh recompute
-        conn = sqlite3.connect(self.db_path)
-        try:
-            conn.execute("DELETE FROM user_prefs WHERE user_id = ?", (user_id,))
-            conn.commit()
-        finally:
-            conn.close()
-
-        # Separate clips
-        self.upsert_user_pref_weights(
-            user_id,
-            deltas,
-            clip=(-2.0, 2.0),
-            clip_map={'ent': (-2.0, 2.0), 'topic': (-1.5, 1.5)}
-        )
 
 
         

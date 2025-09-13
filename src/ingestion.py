@@ -11,6 +11,33 @@ import spacy
 _NER = spacy.load("en_core_web_sm")
 
 
+def extract_entities(article: Article) -> list[tuple[str, str, int]]:
+    """
+    Extract entities from article using spaCy NER with proper mention counting.
+    
+    Args:
+        article: Article object with title, description, and content
+        
+    Returns:
+        List of tuples: (entity_name, entity_type, mention_count)
+    """
+    text = f"{article.title}. {article.description or ''} { (article.content or '')[:1200] }"
+    ents = []
+    
+    doc = _NER(text)
+    keep = {"PERSON","ORG","GPE","LOC","PRODUCT","EVENT","WORK_OF_ART"}
+    for e in doc.ents:
+        if e.label_ in keep:
+            ents.append((e.text.strip(), e.label_, 1))
+    
+    # merge dupes
+    merged = {}
+    for name, etype, c in ents:
+        key = (name, etype)
+        merged[key] = merged.get(key, 0) + c
+    return [(n, t, c) for (n,t), c in merged.items()]
+
+
 # TODO just an architectural template
 # match with the actual api
 class NewsIngestionPipeline:
@@ -62,7 +89,7 @@ class NewsIngestionPipeline:
         for article in articles:
             if len(article.content) < 200: continue
             if len(article.title) < 20: continue
-            named = self._extract_entities(article)
+            named = extract_entities(article)
             article.entities = [n for (n, _, __) in named]  # keep names in JSON column
             processed.append(article)
         return processed
@@ -98,22 +125,6 @@ class NewsIngestionPipeline:
         
         print(f"   Top sources: {db_stats.get('top_sources', {})}")
         
-    def _extract_entities(self, article: Article) -> list[tuple[str,str,int]]:
-        text = f"{article.title}. {article.description or ''} { (article.content or '')[:1200] }"
-        ents = []
-        
-        doc = _NER(text)
-        keep = {"PERSON","ORG","GPE","LOC","PRODUCT","EVENT","WORK_OF_ART"}
-        for e in doc.ents:
-            if e.label_ in keep:
-                ents.append((e.text.strip(), e.label_, 1))
-        
-        # merge dupes
-        merged = {}
-        for name, etype, c in ents:
-            key = (name, etype)
-            merged[key] = merged.get(key, 0) + c
-        return [(n, t, c) for (n,t), c in merged.items()]
 
 # Convenience function for scripts
 async def ingest_news(api_key: str, limit: int = 50):

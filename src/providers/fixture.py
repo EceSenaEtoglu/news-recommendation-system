@@ -41,7 +41,7 @@ def _first(v):
 class FixtureProvider(ArticleProvider):
     """
     Reads local JSON files that mimic API responses.
-    Useful for portfolio/MVP when real APIs don't return full text for free.
+    Useful for portfolio/MVP because real APIs don't return full text for free.
     """
 
     def __init__(
@@ -74,9 +74,14 @@ class FixtureProvider(ArticleProvider):
             try:
                 with open(p, "r", encoding="utf-8") as f:
                     chunk = json.load(f)
-                    if not isinstance(chunk, list):
-                        continue
-                    items.extend(chunk)
+                    # Handle new structure with metadata
+                    if isinstance(chunk, dict) and "articles" in chunk:
+                        articles = chunk["articles"]
+                        if isinstance(articles, list):
+                            items.extend(articles)
+                    elif isinstance(chunk, list):
+                        # Handle old structure (direct list)
+                        items.extend(chunk)
             except Exception as e:
                 print(f"[FixtureProvider] failed to read {p}: {e}")
 
@@ -140,7 +145,10 @@ class FixtureProvider(ArticleProvider):
             try:
                 with open(p, "r", encoding="utf-8") as f:
                     chunk = json.load(f)
-                    if isinstance(chunk, list):
+                    # Handle new structure with metadata
+                    if isinstance(chunk, dict) and "articles" in chunk:
+                        items.extend(chunk["articles"])
+                    elif isinstance(chunk, list):
                         items.extend(chunk)
             except Exception as e:
                 print(f"[FixtureProvider] failed to read {p}: {e}")
@@ -154,13 +162,16 @@ class FixtureProvider(ArticleProvider):
         try:
             with open(fpath, "r", encoding="utf-8") as f:
                 fj = json.load(f)
-                if isinstance(fj, list):
+                # Handle new structure with metadata
+                if isinstance(fj, dict) and "articles" in fj:
+                    featured_items = fj["articles"][:featured_limit]
+                elif isinstance(fj, list):
                     featured_items = fj[:featured_limit]
         except Exception:
             # Fall back to first N items deterministically
             featured_items = pool_items[:featured_limit]
 
-        # Convert and filter
+        # Convert and filter based on the limit
         def _to_list(dicts: List[Dict[str, Any]], lim: int) -> List[Article]:
             out: List[Article] = []
             for d in dicts:
@@ -237,5 +248,26 @@ class FixtureProvider(ArticleProvider):
             published_at=published_at,
             author=author,
             content_type=ContentType.FACTUAL,
-            topics=[category],  # map category → topics for free “topic” signal
+            topics=[category],  # map category → topics for free "topic" signal
         )
+    
+    def get_metadata(self) -> Dict[str, Any]:
+        """Get metadata from fixture files including last update timestamp"""
+        metadata = {
+            "last_updated": None,
+            "featured_count": 0,
+            "pool_count": 0,
+            "total_articles": 0
+        }
+        
+        # Try to read metadata from featured.json
+        featured_path = f"{self.folder}/featured.json"
+        try:
+            with open(featured_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                if isinstance(data, dict) and "metadata" in data:
+                    metadata.update(data["metadata"])
+        except Exception:
+            pass
+            
+        return metadata

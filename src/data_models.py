@@ -1,5 +1,5 @@
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import List, Dict, Optional
 from enum import Enum
 
@@ -82,7 +82,15 @@ class Article:
         
         # Detect urgency from publish time (articles published within 2 hours are "breaking")
         URGENCY_HOUR_INTERVAL = 2
-        hours_old = (datetime.now() - self.published_at).total_seconds() / 3600
+        # Normalize to timezone-aware computation (UTC)
+        pub = self.published_at
+        if isinstance(pub, datetime):
+            if pub.tzinfo is None:
+                pub = pub.replace(tzinfo=timezone.utc)
+            else:
+                pub = pub.astimezone(timezone.utc)
+        now_utc = datetime.now(timezone.utc)
+        hours_old = (now_utc - pub).total_seconds() / 3600
         if hours_old <URGENCY_HOUR_INTERVAL:
             self.urgency_score = min(self.urgency_score + 0.3, 1.0)
 
