@@ -32,12 +32,12 @@ except ImportError:
 def simple_summarize(article: Article, max_sentences: int = 3) -> str:
     """Simple extractive summarization using first sentences of content"""
     if not getattr(article, "content", None) or not isinstance(article.content, str):
-        return (getattr(article, "description", "") or article.title)[:250]
+        return (getattr(article, "description", "") or article.title)[:350]
     sentences = article.content.split(". ")
     summary = ". ".join(sentences[:max_sentences])
     if not summary.endswith("."):
         summary += "."
-    return summary[:250]
+    return summary
 
 
 def load_fixtures(folder: str, featured_limit: int, candidate_limit: int):
@@ -178,30 +178,44 @@ def render_recommendation_card(rec: dict, article: Article, idx: int):
                     })
                     st.rerun()
 
-
-def create_summary_grid(articles, cols_per_row):
-    """Create grid of summary cards"""
+def create_saved_articles_grid(articles, cols_per_row):
+    """Create grid of saved article cards"""
     for i in range(0, len(articles), cols_per_row):
         row_articles = articles[i:i+cols_per_row]
         cols = st.columns(cols_per_row)
         for col, article in zip(cols, row_articles):
             with col:
-                render_summary_card(article, i + row_articles.index(article) + 1)
+                render_saved_article_card(article, i + row_articles.index(article) + 1)
 
 
-def render_summary_card(article: Article, idx: int):
-    """Modern summary card with a yellow accent, using native elements."""
-    unique_id = f"summ_card_{idx}_{article.id}"
+def render_saved_article_card(article: Article, idx: int):
+    """Card for saved articles with a summarize button."""
+    unique_id = f"saved_card_{idx}_{article.id}"
     with st.container(border=True):
         st.markdown(f"<div class='card-accent' style='background-color: #F59E0B;'></div>", unsafe_allow_html=True)
         st.markdown(f"**{article.title}**")
 
-        st.divider()
-        c1, c2 = st.columns(2)
-        c1.link_button("Read →", article.url, use_container_width=True)
-        if c2.button("🗑️ Remove", key=f"remove_summ_{unique_id}", use_container_width=True):
-            st.session_state.news_basket = [x for x in st.session_state.news_basket if x["id"] != article.id]
-            st.rerun()
+        # Conditional Summary Display
+        if st.session_state.get("summarize_id") == article.id:
+            st.caption(simple_summarize(article))
+            st.divider()
+            c1, c2 = st.columns(2)
+            c1.link_button("Read →", article.url, use_container_width=True)
+            if c2.button("Hide Summary", key=f"hide_summ_{unique_id}", use_container_width=True):
+                st.session_state.summarize_id = None
+                st.rerun()
+        else:
+            st.divider()
+            c1, c2, c3 = st.columns(3)
+            c1.link_button("Read →", article.url, use_container_width=True)
+            if c2.button("✍️ Summarize", key=f"show_summ_{unique_id}", use_container_width=True):
+                st.session_state.summarize_id = article.id
+                st.rerun()
+            if c3.button("🗑️ Remove", key=f"remove_summ_{unique_id}", use_container_width=True):
+                st.session_state.news_basket = [x for x in st.session_state.news_basket if x["id"] != article.id]
+                if st.session_state.get("summarize_id") == article.id:
+                    st.session_state.summarize_id = None
+                st.rerun()
 
 # ---------------------------
 # Main App
@@ -222,6 +236,9 @@ def main():
     ss.setdefault("recs_page", 1)
     ss.setdefault("summ_page", 1)
     ss.setdefault("active_tab", "📰 Featured Articles")
+    ss.setdefault("summarize_id", None) # ID of article to summarize
+    ss.setdefault("featured_count", 20)
+    ss.setdefault("candidate_count", 100)
 
     # Handle programmatic navigation from button clicks before rendering any widgets
     if "navigate_to" in ss:
@@ -284,8 +301,6 @@ def main():
     """, unsafe_allow_html=True)
 
     fixtures_folder = "src/providers/news_fixtures"
-    featured_limit = 20
-    candidate_limit = 100
     cur_feat, cur_pool, metadata = _fixture_counts(fixtures_folder)
 
     with st.sidebar:
@@ -299,10 +314,15 @@ def main():
             st.warning("⚠️ No timestamp")
 
         st.markdown("---")
+        
+        st.markdown("### Fetch News Config")
+        ss.featured_count = st.slider("Featured Articles", 10, 50, ss.featured_count)
+        ss.candidate_count = st.slider("Candidate Pool", 50, 200, ss.candidate_count)
+
         if st.button("🔄 Refresh News", type="primary", use_container_width=True):
             with st.spinner("Fetching latest news and building index..."):
                 try:
-                    success = fetch_and_setup_data(featured_count=featured_limit, pool_count=candidate_limit)
+                    success = fetch_and_setup_data(featured_count=ss.featured_count, pool_count=ss.candidate_count)
                     if success: st.success("✅ News refreshed!"); st.rerun()
                     else: st.error("❌ Update failed")
                 except Exception as e:
@@ -314,12 +334,12 @@ def main():
         if ss.news_basket and st.button("🗑️ Clear Basket", use_container_width=True):
             ss.news_basket = []; st.rerun()
 
-    featured, candidates, all_articles = load_fixtures(fixtures_folder, featured_limit, candidate_limit)
+    featured, candidates, all_articles = load_fixtures(fixtures_folder, ss.featured_count, ss.candidate_count)
 
     st.title("🤖 AI-Powered News Dashboard")
     st.markdown("<p style='text-align: center; color: #6b7280; font-size: 18px;'>Advanced recommendations with neural reranking and multi-model fusion</p>", unsafe_allow_html=True)
 
-    with st.expander("⚙️ Configuration", expanded=False):
+    with st.expander("⚙️ Recommender Configs", expanded=False):
         c1, c2, c3, c4 = st.columns(4)
         ss.recommendation_type = c1.selectbox("AI Model", ["Basic", "Enhanced (Neural)", "Multi-Model"], index=["Basic", "Enhanced (Neural)", "Multi-Model"].index(ss.recommendation_type))
         ss.num_recommendations = c2.slider("Recommendations", 3, 15, ss.num_recommendations)
@@ -327,7 +347,7 @@ def main():
         grid_columns = c4.selectbox("Grid Columns", [2, 3], index=0)
 
     # --- Tab implementation using styled radio buttons ---
-    tab_options = ["📰 Featured Articles", "🎯 AI Recommendations", "📋 My Summaries"]
+    tab_options = ["📰 Featured Articles", "🎯 AI Recommendations", "📚 Saved Articles"]
     try:
         current_tab_index = tab_options.index(ss.active_tab)
     except ValueError:
@@ -403,14 +423,14 @@ def main():
             else:
                 st.warning("Could not generate recommendations for this article.")
 
-    elif ss.active_tab == "📋 My Summaries":
+    elif ss.active_tab == "📚 Saved Articles":
         if not ss.news_basket:
-            st.info("🧺 Your basket is empty. Save articles from other tabs to see summaries here.")
+            st.info("🧺 Your basket is empty. Save articles from other tabs to see them here.")
         else:
             basket_articles = [all_articles.get(item["id"]) for item in ss.news_basket if item["id"] in all_articles]
             items_per_page = grid_columns * 4
             page_articles, total_pages, ss.summ_page = paginate(basket_articles, items_per_page, ss.summ_page)
-            create_summary_grid(page_articles, grid_columns)
+            create_saved_articles_grid(page_articles, grid_columns)
             if total_pages > 1:
                 st.divider()
                 pg_cols = st.columns([1, 2, 1])
