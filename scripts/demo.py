@@ -279,7 +279,14 @@ def cmd_recommend(article_id: str):
     """Get basic recommendations for an article"""
     db = ArticleDB("db/articles.db")
     emb = EmbeddingSystem()
-    rec = AIRecommender(db, emb)
+    
+    # Configure for larger candidate pool
+    config = RecommendationConfig(
+        top_k=20,  # Increased from default 10
+        mmr_pool=100,  # Increased from default 50
+        use_mmr=True
+    )
+    rec = AIRecommender(db, emb, config)
     
     article = db.get_article_by_id(article_id)
     if not article:
@@ -305,7 +312,13 @@ def cmd_enhanced_recommend(article_id: str, model_name: str = None):
     if model_name:
         emb.switch_model(model_name)
     
-    config = RecommendationConfig(use_neural_reranker=True, use_mmr=True)
+    # Configure for larger candidate pool
+    config = RecommendationConfig(
+        top_k=20,  # Increased from default 10
+        mmr_pool=100,  # Increased from default 50
+        use_neural_reranker=True, 
+        use_mmr=True
+    )
     rec = AIRecommender(db, emb, config)
     
     article = db.get_article_by_id(article_id)
@@ -336,6 +349,13 @@ def cmd_multi_model_recommend(article_id: str, models: list = None):
     db = ArticleDB("db/articles.db")
     emb = EmbeddingSystem()
     
+    # Configure for larger candidate pool
+    config = RecommendationConfig(
+        top_k=20,  # Increased from default 10
+        mmr_pool=100,  # Increased from default 50
+        use_mmr=True
+    )
+    
     article = db.get_article_by_id(article_id)
     if not article:
         print(f"Article not found: {article_id}")
@@ -344,9 +364,9 @@ def cmd_multi_model_recommend(article_id: str, models: list = None):
     print(f"Multi-Model Recommendations for: {article.title}")
     print("=" * 60)
     
-    # Use multi-model search
+    # Use multi-model search with larger pool
     query_text = f"{article.title} {article.description or ''}"
-    results = emb.multi_model_search(query_text, models=models, k=5, fusion_method="weighted_average")
+    results = emb.multi_model_search(query_text, models=models, k=20, fusion_method="weighted_average")
     
     for i, (aid, score) in enumerate(results, 1):
         candidate = db.get_article_by_id(aid)

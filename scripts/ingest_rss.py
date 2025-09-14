@@ -65,6 +65,60 @@ FEED_CATEGORY = {
     "https://rss.slashdot.org/Slashdot/slashdot": "science",
 }
 
+# Domain-based category mapping for better coverage
+DOMAIN_CATEGORY = {
+    # Technology
+    "techcrunch.com": "technology",
+    "www.techcrunch.com": "technology", 
+    "theverge.com": "technology",
+    "www.theverge.com": "technology",
+    "arstechnica.com": "technology", 
+    "www.arstechnica.com": "technology",
+    "engadget.com": "technology",
+    "www.engadget.com": "technology",
+    "wired.com": "technology",
+    "www.wired.com": "technology",
+    "hnrss.org": "technology",
+    
+    # World/News
+    "bbc.com": "world",
+    "www.bbc.com": "world",
+    "reuters.com": "world", 
+    "www.reuters.com": "world",
+    "theguardian.com": "world",
+    "www.theguardian.com": "world",
+    "aljazeera.com": "world",
+    "www.aljazeera.com": "world",
+    "npr.org": "world",
+    "www.npr.org": "world",
+    
+    # Business
+    "cnbc.com": "business",
+    "www.cnbc.com": "business",
+    "ft.com": "business", 
+    "www.ft.com": "business",
+    
+    # Politics
+    "politico.com": "politics",
+    "www.politico.com": "politics",
+    
+    # Science
+    "slashdot.org": "science",
+    "www.slashdot.org": "science",
+    "yro.slashdot.org": "science",
+    
+    # General/Other
+    "bmj.com": "science",
+    "www.bmj.com": "science",
+    "techxplore.com": "technology",
+    "www.techxplore.com": "technology",
+    
+    # Additional mappings for sources in database
+    "sibellavia.lol": "general",
+    "worksinprogress.co": "general",
+    "oldvcr.blogspot.com": "technology",
+}
+
 # use the newspaper3k to extract the full text of the article
 def extract_fulltext(url: str, np_config: NPConfig) -> tuple[str, str]:
     art = NPArticle(url, config=np_config)
@@ -284,8 +338,12 @@ def main():
         feed_url = article.get("feed", "")
         source_url = article.get("source_url", "")
         
+        # Extract domain from source_url for mapping
+        source_domain = source_url.replace("https://", "").replace("http://", "").split("/")[0]
+        
         category = (FEED_CATEGORY.get(source_url) or 
                    FEED_CATEGORY.get(feed_url) or 
+                   DOMAIN_CATEGORY.get(source_domain) or  # Try domain mapping
                    article.get("category") or 
                    "general")
         article["category"] = category
