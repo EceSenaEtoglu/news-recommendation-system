@@ -11,6 +11,39 @@ import feedparser
 from newspaper import Article as NPArticle
 from newspaper import Config as NPConfig
 
+# Import entity extraction function
+import sys
+import os
+sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'src'))
+
+# Import spaCy directly since we only need the NER functionality
+import spacy
+_NER = spacy.load("en_core_web_sm")
+
+def extract_entities_simple(title: str, description: str, content: str) -> list[str]:
+    """
+    Simple entity extraction function for RSS ingestion.
+    Extracts entity names from article text using spaCy NER.
+    """
+    text = f"{title}. {description or ''} { (content or '')[:1200] }"
+    ents = []
+    
+    doc = _NER(text)
+    keep = {"PERSON","ORG","GPE","LOC","PRODUCT","EVENT","WORK_OF_ART"}
+    for e in doc.ents:
+        if e.label_ in keep:
+            ents.append(e.text.strip())
+    
+    # Remove duplicates while preserving order
+    seen = set()
+    unique_ents = []
+    for ent in ents:
+        if ent not in seen:
+            seen.add(ent)
+            unique_ents.append(ent)
+    
+    return unique_ents[:10]  # Limit to 10 entities
+
 
 DEFAULT_FEEDS = [
     # World / General
@@ -287,6 +320,14 @@ def main():
                 return None
             pub = c["pub"] or iso_now()
             netloc = urlparse(link).netloc
+            
+            # Extract entities using spaCy NER
+            try:
+                entities = extract_entities_simple(title or "", c["desc"] or "", content)
+            except Exception as e:
+                print(f"Entity extraction failed for {link}: {e}")
+                entities = []
+            
             return {
                 "title": title or "",
                 "description": c["desc"] or "",
@@ -300,7 +341,8 @@ def main():
                 "country": "us",
                 "category": "general",
                 "pubDate": pub,
-                "creator": None
+                "creator": None,
+                "entities": entities  # Add extracted entities
             }
         except Exception as ex:
             print("Extract failed:", link, ex)
