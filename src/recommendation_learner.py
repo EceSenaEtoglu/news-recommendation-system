@@ -10,21 +10,9 @@ from sklearn.model_selection import train_test_split
 from .data_models import Article
 from .storage import ArticleDB
 from .embeddings import EmbeddingSystem
-from .reranker import RerankFeatureExtractor, TrainableLogisticReranker, RerankFeatureConfig
+from .reranker import RerankFeatureExtractor, TrainableLogisticReranker, RerankFeatureConfig, NeuralReranker, AdvancedFeatureExtractor, NeuralRerankerConfig
 from datetime import datetime, timezone
 import numpy as np
-
-
-@dataclass
-class NeuralRerankerConfig:
-    """Configuration for neural reranker"""
-    hidden_dim: int = 128
-    num_layers: int = 2
-    dropout: float = 0.2
-    learning_rate: float = 0.001
-    batch_size: int = 32
-    num_epochs: int = 100
-    early_stopping_patience: int = 10
 
 
 @dataclass
@@ -40,7 +28,7 @@ class RecommendationConfig:
     mmr_lambda: float = 0.7  # trade-off: 1.0 = all relevance, 0.0 = all diversity
     mmr_pool: int = 50       # candidate pool size before MMR selection
     
-    # Neural reranker settings
+    # Neural reranker settings (for future use - requires user interaction data)
     use_neural_reranker: bool = False
     neural_config: NeuralRerankerConfig = None
     
@@ -49,140 +37,8 @@ class RecommendationConfig:
             self.neural_config = NeuralRerankerConfig()
 
 
-class NeuralReranker(nn.Module):
-    """
-    Neural network reranker for news recommendations.
-    
-    Architecture:
-    - Input: Feature vector (semantic similarity, topic overlap, freshness, etc.)
-    - Hidden layers: Multi-layer perceptron with dropout
-    - Output: Relevance score (0-1)
-    """
-    
-    def __init__(self, input_dim: int, config: NeuralRerankerConfig):
-        super().__init__()
-        self.config = config
-        
-        # Build layers dynamically
-        layers = []
-        prev_dim = input_dim
-        
-        for i in range(config.num_layers):
-            layers.extend([
-                nn.Linear(prev_dim, config.hidden_dim),
-                nn.ReLU(),
-                nn.Dropout(config.dropout)
-            ])
-            prev_dim = config.hidden_dim
-        
-        # Output layer
-        layers.append(nn.Linear(prev_dim, 1))
-        layers.append(nn.Sigmoid())  # Output between 0 and 1
-        
-        self.network = nn.Sequential(*layers)
-        
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        """Forward pass through the network"""
-        return self.network(x)
-    
-    def predict_scores(self, features: np.ndarray) -> np.ndarray:
-        """Predict relevance scores for given features"""
-        self.eval()
-        with torch.no_grad():
-            X = torch.FloatTensor(features)
-            scores = self.forward(X).squeeze().numpy()
-        return scores
 
 
-class AdvancedFeatureExtractor:
-    """
-    Advanced feature extraction for neural reranker.
-    Extracts richer features than the basic logistic reranker.
-    """
-    
-    def __init__(self, db: ArticleDB, embeddings: EmbeddingSystem):
-        self.db = db
-        self.embeddings = embeddings
-        
-    def extract_features(self, 
-                        seed_article: Article, 
-                        candidate_articles: List[Article],
-                        base_scores: Dict[str, float]) -> Tuple[np.ndarray, List[str]]:
-        """
-        Extract comprehensive features for neural reranking.
-        
-        Features:
-        1. Semantic similarity (cosine)
-        2. Topic overlap ratio
-        3. Entity overlap ratio
-        4. Freshness score
-        5. Source credibility
-        6. Content type match
-        7. Title similarity
-        8. Content length ratio
-        9. Author match
-        10. Publication time difference
-        """
-        
-        features = []
-        article_ids = []
-        
-        for candidate in candidate_articles:
-            feature_vector = []
-            
-            # 1. Base semantic similarity
-            base_score = base_scores.get(candidate.id, 0.0)
-            feature_vector.append(base_score)
-            
-            # 2. Topic overlap ratio
-            seed_topics = set(seed_article.topics or [])
-            cand_topics = set(candidate.topics or [])
-            topic_overlap = len(seed_topics.intersection(cand_topics)) / max(len(seed_topics), 1)
-            feature_vector.append(topic_overlap)
-            
-            # 3. Entity overlap ratio
-            seed_entities = set(seed_article.entities or [])
-            cand_entities = set(candidate.entities or [])
-            entity_overlap = len(seed_entities.intersection(cand_entities)) / max(len(seed_entities), 1)
-            feature_vector.append(entity_overlap)
-            
-            # 4. Freshness score (0-1, newer = higher)
-            now = datetime.now(timezone.utc)
-            time_diff = (now - candidate.published_at).total_seconds()
-            freshness = max(0, 1 - (time_diff / (7 * 24 * 3600)))  # 7 days decay
-            feature_vector.append(freshness)
-            
-            # 5. Source credibility
-            feature_vector.append(candidate.source.credibility_score)
-            
-            # 6. Content type match (binary)
-            content_type_match = 1 if seed_article.content_type == candidate.content_type else 0
-            feature_vector.append(content_type_match)
-            
-            # 7. Title similarity (simple word overlap)
-            seed_title_words = set(seed_article.title.lower().split())
-            cand_title_words = set(candidate.title.lower().split())
-            title_overlap = len(seed_title_words.intersection(cand_title_words)) / max(len(seed_title_words), 1)
-            feature_vector.append(title_overlap)
-            
-            # 8. Content length ratio
-            length_ratio = min(len(candidate.content), len(seed_article.content)) / max(len(candidate.content), len(seed_article.content), 1)
-            feature_vector.append(length_ratio)
-            
-            # 9. Author match (binary)
-            author_match = 1 if (seed_article.author and candidate.author and 
-                               seed_article.author.lower() == candidate.author.lower()) else 0
-            feature_vector.append(author_match)
-            
-            # 10. Publication time difference (normalized)
-            time_diff_hours = abs((seed_article.published_at - candidate.published_at).total_seconds() / 3600)
-            time_diff_norm = min(time_diff_hours / (24 * 7), 1.0)  # Normalize to 7 days
-            feature_vector.append(time_diff_norm)
-            
-            features.append(feature_vector)
-            article_ids.append(candidate.id)
-        
-        return np.array(features), article_ids
 
 
 class AIRecommender:
@@ -204,7 +60,7 @@ class AIRecommender:
         self._feature_extractor = RerankFeatureExtractor(db, embeddings, RerankFeatureConfig())
         self._logistic_reranker: Optional[TrainableLogisticReranker] = None
         
-        # Neural reranker components
+        # Neural reranker components (for future use - requires user interaction data)
         self._neural_reranker: Optional[NeuralReranker] = None
         self._advanced_feature_extractor: Optional[AdvancedFeatureExtractor] = None
         
@@ -212,7 +68,7 @@ class AIRecommender:
             self._init_neural_reranker()
 
     def _init_neural_reranker(self):
-        """Initialize neural reranker with appropriate input dimension"""
+        """Initialize neural reranker with appropriate input dimension (for future use)"""
         # Input dimension based on advanced feature extractor
         input_dim = 10  # Number of features extracted by AdvancedFeatureExtractor
         self._neural_reranker = NeuralReranker(input_dim, self.config.neural_config)
@@ -220,7 +76,7 @@ class AIRecommender:
         print(f"Initialized neural reranker with {input_dim} input features")
     
     def train_neural_reranker(self, user_id: str = "default", days: int = 14):
-        """Train the neural reranker on user interaction data"""
+        """Train the neural reranker on user interaction data (for future use)"""
         if not self._neural_reranker:
             print("Neural reranker not initialized")
             return
@@ -404,7 +260,8 @@ class AIRecommender:
         return f"{article.title} {description} {content_head}".strip()
 
     def recommend_for_article(self, current: Article, k: Optional[int] = None) -> List[Tuple[Article, float]]:
-        """Return a ranked list of (Article, score) similar to the current article."""
+        """Return a ranked list of (Article, score) similar to the current article by applying several methods:
+        Methods: 1. Semantic search, 2. Topic overlap bonus, 3. MMR Diversification, 4. Neural reranking or Trainable logistic reranker."""
         k = k or self.config.top_k
 
         # Build query text from the article itself (we have full text locally)
@@ -432,6 +289,8 @@ class AIRecommender:
             cand = id_to_cand.get(aid)
             if not cand:
                 continue
+
+            # apply topic overlap bonus if there are topics in candidates and current article
             if current_topics and cand.topics:
                 overlap = current_topics.intersection(set(cand.topics))
                 score = float(score) + min(self.config.max_topic_bonus, self.config.topic_overlap_boost * len(overlap))
@@ -445,7 +304,7 @@ class AIRecommender:
             scored.sort(key=lambda x: x[1], reverse=True)
             ranked = [(id_to_cand[aid], s) for aid, s in scored if aid in id_to_cand]
         else:
-            # --- MMR Diversification ---
+            # apply MMR Diversification
             pool = sorted(scored, key=lambda x: x[1], reverse=True)[: self.config.mmr_pool]
             pool_ids = [aid for aid, _ in pool]
             pool_articles = [id_to_cand[aid] for aid in pool_ids if aid in id_to_cand]
@@ -471,6 +330,7 @@ class AIRecommender:
                         mmr_val = rel
                     else:
                         max_sim = max(sim[idx, j] for j in selected)
+                        # MMR Score = λ × Relevance - (1-λ) × Max_Similarity
                         mmr_val = lambda_ * rel - (1.0 - lambda_) * max_sim
                     if mmr_val > best_val:
                         best_val = mmr_val
@@ -478,7 +338,8 @@ class AIRecommender:
                 selected.append(best_idx)
                 remaining.remove(best_idx)
             ranked = [(id_to_cand[pool_ids[i]], id_to_score[pool_ids[i]]) for i in selected if pool_ids[i] in id_to_cand]
-        # Optional neural reranking
+        
+        # Optional neural reranking (for future use - requires user interaction data)
         if self._neural_reranker and ranked:
             ranked = self._apply_neural_reranking(current, ranked, base_scores)
         
@@ -521,7 +382,7 @@ class AIRecommender:
                 seen_titles.add(t)
             deduped.append((art, score))
 
-        # Ensure the final list is presented in descending score order for UX
+        # Ensure the final list is presented in descending score order 
         deduped.sort(key=lambda x: x[1], reverse=True)
         return deduped[:k]
 

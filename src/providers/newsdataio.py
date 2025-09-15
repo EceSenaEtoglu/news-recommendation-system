@@ -15,6 +15,9 @@ except Exception:
     dateparser = None
 
 
+# TODO currently this is not being used as the free version does not give full article content
+# TODO match it with the actual API calls!
+
 class NewsDataIOProvider(ArticleProvider):
     """
     Minimal NewsData.io wrapper (MVP-friendly).

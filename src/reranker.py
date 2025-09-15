@@ -5,6 +5,9 @@ from typing import List, Tuple, Optional, Dict
 from datetime import datetime, timezone
 import math
 import numpy as np
+import torch
+import torch.nn as nn
+from sklearn.model_selection import train_test_split
 
 from .data_models import Article
 from .storage import ArticleDB
@@ -15,6 +18,18 @@ from .embeddings import EmbeddingSystem
 class RerankFeatureConfig:
     recency_half_life_hours: float = 48.0
     content_length_norm: int = 2000
+
+
+@dataclass
+class NeuralRerankerConfig:
+    """Configuration for neural reranker (for future use)"""
+    hidden_dim: int = 128
+    num_layers: int = 2
+    dropout: float = 0.2
+    learning_rate: float = 0.001
+    batch_size: int = 32
+    num_epochs: int = 100
+    early_stopping_patience: int = 10
 
 
 class RerankFeatureExtractor:
@@ -73,7 +88,7 @@ class LogisticParams:
 class TrainableLogisticReranker:
     """Simple logistic regression reranker (numpy), no external deps.
 
-    y in {0,1}. Predicts p(click|features). Use as a rerank score.
+     Predicts p(click|features). Use as a rerank score.
     """
 
     def __init__(self, params: Optional[LogisticParams] = None):
@@ -111,6 +126,132 @@ class TrainableLogisticReranker:
 
     def predict_scores(self, X: np.ndarray) -> np.ndarray:
         return self.predict_proba(X)
+
+
+class NeuralReranker(nn.Module):
+    """
+    Neural network reranker for news recommendations (for future use).
+    
+    Architecture:
+    - Input: Feature vector (semantic similarity, topic overlap, freshness, etc.)
+    - Hidden layers: Multi-layer perceptron with dropout
+    - Output: Relevance score (0-1)
+    
+    Note: Currently not used as it requires user interaction data for training.
+    """
+    
+    def __init__(self, input_dim: int, config: NeuralRerankerConfig):
+        super().__init__()
+        self.config = config
+        
+        # Build layers dynamically
+        layers = []
+        prev_dim = input_dim
+        
+        for i in range(config.num_layers):
+            layers.extend([
+                nn.Linear(prev_dim, config.hidden_dim),
+                nn.ReLU(),
+                nn.Dropout(config.dropout)
+            ])
+            prev_dim = config.hidden_dim
+        
+        # Output layer
+        layers.append(nn.Linear(prev_dim, 1))
+        layers.append(nn.Sigmoid())  # Output between 0 and 1
+        
+        self.network = nn.Sequential(*layers)
+        
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """Forward pass through the network"""
+        return self.network(x)
+    
+    def predict_scores(self, features: np.ndarray) -> np.ndarray:
+        """Predict relevance scores for given features"""
+        self.eval()
+        with torch.no_grad():
+            X = torch.FloatTensor(features)
+            scores = self.forward(X).squeeze().numpy()
+        return scores
+
+
+class AdvancedFeatureExtractor:
+    """
+    Advanced feature extraction for neural reranker (for future use).
+    Extracts richer features than the basic logistic reranker.
+    
+    Note: Currently not used as neural reranker requires user interaction data.
+    """
+    
+    def __init__(self, db: ArticleDB, embeddings: EmbeddingSystem):
+        self.db = db
+        self.embeddings = embeddings
+        
+    def extract_features(self, 
+                        seed_article: Article, 
+                        candidate_articles: List[Article],
+                        base_scores: Dict[str, float]) -> Tuple[np.ndarray, List[str]]:
+        """
+        Extract advanced features for neural reranker.
+        
+        Features (10 total):
+        1. Semantic similarity (FAISS score)
+        2. Topic overlap count
+        3. Recency score (exponential decay)
+        4. Source credibility
+        5. Content length (normalized)
+        6. Entity overlap count
+        7. Content quality score
+        8. Temporal relevance
+        9. User engagement score
+        10. Cross-modal alignment
+        """
+        features = []
+        article_ids = []
+        
+        for article in candidate_articles:
+            # Feature 1: Base semantic similarity
+            semantic_sim = base_scores.get(article.id, 0.0)
+            
+            # Feature 2: Topic overlap
+            topic_overlap = len(set(seed_article.topics or []).intersection(set(article.topics or [])))
+            
+            # Feature 3: Recency (exponential decay)
+            hours_old = max(0.0, (datetime.now(timezone.utc) - article.published_at).total_seconds() / 3600.0)
+            recency = math.exp(-hours_old / 48.0)  # 48-hour half-life
+            
+            # Feature 4: Source credibility
+            source_cred = getattr(getattr(article, "source", None), "credibility_score", 0.5) or 0.5
+            
+            # Feature 5: Content length (normalized)
+            content_len = min(1.0, len(article.content or "") / 2000.0)
+            
+            # Feature 6: Entity overlap
+            seed_entities = set(seed_article.entities or [])
+            article_entities = set(article.entities or [])
+            entity_overlap = len(seed_entities.intersection(article_entities))
+            
+            # Feature 7: Content quality (simple heuristic)
+            content_quality = min(1.0, len(article.description or "") / 200.0)
+            
+            # Feature 8: Temporal relevance (time-based)
+            temporal_relevance = 1.0 if article.content_type == "breaking" else 0.5
+            
+            # Feature 9: User engagement (placeholder - would use real data)
+            user_engagement = 0.5  # Default neutral score
+            
+            # Feature 10: Cross-modal alignment (title-content similarity)
+            cross_modal = 0.5  # Placeholder - would compute title-content similarity
+            
+            feature_vector = [
+                semantic_sim, topic_overlap, recency, source_cred, content_len,
+                entity_overlap, content_quality, temporal_relevance, user_engagement, cross_modal
+            ]
+            
+            features.append(feature_vector)
+            article_ids.append(article.id)
+        
+        return np.array(features), article_ids
 
 
 def build_training_data_from_events(
