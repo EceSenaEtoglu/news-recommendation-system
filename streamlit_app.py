@@ -386,7 +386,7 @@ def main():
             if cache_key not in ss:
                 with st.spinner(f"Generating {ss.recommendation_type.lower()} recommendations..."):
                     cmd_map = { "Basic": ["--recommend", ss.selected_article_id], "Enhanced (Neural)": ["--enhanced", ss.selected_article_id], "Multi-Model": ["--multi-model", ss.selected_article_id], }
-                    cmd = [sys.executable, "scripts/demo.py"] + cmd_map[ss.recommendation_type]
+                    cmd = [sys.executable, "scripts/demo.py"] + cmd_map[ss.recommendation_type] + ["--k", str(ss.num_recommendations)]
                     result = subprocess.run(cmd, capture_output=True, text=True, check=False, cwd=os.getcwd(), env=os.environ.copy())
                     
                     recommendations = []
@@ -399,7 +399,7 @@ def main():
                                     score_str = parts[0].strip()
                                     title = parts[1].strip()
                                     try:
-                                        score = float(score_str.split(".")[0] + "." + score_str.split(".")[1][:3])
+                                        score = float(score_str)
                                         recommendations.append({"title": title, "score": score})
                                     except:
                                         recommendations.append({"title": title, "score": 0.0})

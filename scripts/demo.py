@@ -275,7 +275,7 @@ def run_demo():
     print()
 
 
-def cmd_recommend(article_id: str):
+def cmd_recommend(article_id: str, k: int = 5):
     """Get basic recommendations for an article"""
     db = ArticleDB("db/articles.db")
     emb = EmbeddingSystem()
@@ -296,7 +296,7 @@ def cmd_recommend(article_id: str):
     print(f"Basic Recommendations for: {article.title}")
     print("=" * 60)
     
-    recommendations = rec.recommend_for_article(article, k=5)
+    recommendations = rec.recommend_for_article(article, k=k)
     for i, (candidate, score) in enumerate(recommendations, 1):
         explanation = rec.explain_recommendation(article, candidate)
         print(f"{i}. {score:.3f} | {candidate.title}")
@@ -304,7 +304,7 @@ def cmd_recommend(article_id: str):
         print()
 
 
-def cmd_enhanced_recommend(article_id: str, model_name: str = None):
+def cmd_enhanced_recommend(article_id: str, k: int = 5, model_name: str = None):
     """Get enhanced recommendations with neural reranker"""
     db = ArticleDB("db/articles.db")
     emb = EmbeddingSystem()
@@ -333,7 +333,7 @@ def cmd_enhanced_recommend(article_id: str, model_name: str = None):
     print("Training neural reranker...")
     rec.train_neural_reranker()
     
-    recommendations = rec.recommend_for_article(article, k=5)
+    recommendations = rec.recommend_for_article(article, k=k)
     for i, (candidate, score) in enumerate(recommendations, 1):
         explanation = rec.explain_recommendation(article, candidate)
         print(f"{i}. {score:.3f} | {candidate.title}")
@@ -341,7 +341,7 @@ def cmd_enhanced_recommend(article_id: str, model_name: str = None):
         print()
 
 
-def cmd_multi_model_recommend(article_id: str, models: list = None):
+def cmd_multi_model_recommend(article_id: str, k: int = 5, models: list = None):
     """Get multi-model fusion recommendations"""
     if models is None:
         models = ["all-MiniLM-L6-v2", "news-similarity"]
@@ -366,7 +366,7 @@ def cmd_multi_model_recommend(article_id: str, models: list = None):
     
     # Use multi-model search with larger pool
     query_text = f"{article.title} {article.description or ''}"
-    results = emb.multi_model_search(query_text, models=models, k=20, fusion_method="weighted_average")
+    results = emb.multi_model_search(query_text, models=models, k=k, fusion_method="weighted_average")
     
     for i, (aid, score) in enumerate(results, 1):
         candidate = db.get_article_by_id(aid)
@@ -411,6 +411,7 @@ def main():
     parser.add_argument("--recommend", help="Get basic recommendations for article ID")
     parser.add_argument("--enhanced", help="Get enhanced recommendations for article ID")
     parser.add_argument("--multi-model", help="Get multi-model recommendations for article ID")
+    parser.add_argument("--k", type=int, default=5, help="Number of recommendations to return")
     parser.add_argument("--model", help="Specify embedding model to use")
     parser.add_argument("--models", nargs="+", help="Models for multi-model fusion")
     parser.add_argument("--list-models", action="store_true", help="List available models")
@@ -426,11 +427,11 @@ def main():
         elif args.demo:
             run_demo()
         elif args.recommend:
-            cmd_recommend(args.recommend)
+            cmd_recommend(args.recommend, args.k)
         elif args.enhanced:
-            cmd_enhanced_recommend(args.enhanced, args.model)
+            cmd_enhanced_recommend(args.enhanced, args.k, args.model)
         elif args.multi_model:
-            cmd_multi_model_recommend(args.multi_model, args.models)
+            cmd_multi_model_recommend(args.multi_model, args.k, args.models)
         elif args.list_models:
             cmd_list_models()
         elif args.model_info:
