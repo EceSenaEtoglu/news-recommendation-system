@@ -62,28 +62,6 @@ python scripts/demo.py --multi-model <article_id>
 - **📈 Multi-Model Embeddings**: News-specific vs general models
 - **🌐 Graph RAG**: Entity-based recommendation expansion
 
-## 🧠 Key AI Concepts Explained
-
-### **🎯 MMR (Maximal Marginal Relevance)**
-**What it does**: Prevents repetitive recommendations by balancing relevance with diversity.
-
-**How it works**:
-- **Relevance Score**: How similar an article is to your query
-- **Diversity Score**: How different it is from already selected articles
-- **Balance**: `MMR = λ × Relevance - (1-λ) × Diversity`
-
-**Example**: If you're reading about "AI", MMR ensures you get diverse AI topics (healthcare AI, finance AI, ethics AI) instead of 5 similar "AI breakthrough" articles.
-
-### **🌐 Graph RAG (Retrieval-Augmented Generation)**
-**What it does**: Uses entity relationships to find more relevant articles.
-
-**How it works**:
-1. **Entity Extraction**: Identifies people, organizations, locations in articles
-2. **Relationship Building**: Maps connections between entities
-3. **Graph Expansion**: Finds articles mentioning related entities
-4. **Enhanced Retrieval**: Combines semantic search with entity-based expansion
-
-**Example**: Reading about "Tesla" → finds articles about "Elon Musk", "electric vehicles", "autonomous driving" through entity relationships.
 
 ## 🎮 Web Interface Guide
 
