@@ -10,10 +10,7 @@ from src.data_models import Article
 from src.providers.fixture import FixtureProvider
 from scripts.demo import fetch_and_setup_data
 
-# ---------------------------
 # Helpers
-# ---------------------------
-
 # TODO integrate a summarization model
 def simple_summarize(article: Article, max_sentences: int = 3) -> str:
     """Simple extractive summarization using first sentences of content"""
@@ -26,6 +23,7 @@ def simple_summarize(article: Article, max_sentences: int = 3) -> str:
     return summary
 
 
+# TODO, for the uknown category a category extraction model can be used
 def get_category_badge(article: Article) -> str:
     """Get a styled category badge for an article"""
     category = None
@@ -304,12 +302,18 @@ def render_recommendation_card(rec: dict, article: Article, idx: int, recommenda
         st.divider()
         c1, c2 = st.columns(2)
         c1.link_button("Read →", article.url, use_container_width=True)
-        if c2.button("📦 Save", key=f"save_rec_{unique_id}", use_container_width=True):
-            source_name = getattr(article.source, "name", "Unknown")
-            st.session_state.news_basket.append({
-                "id": article.id, "title": article.title, "url": article.url, "source": source_name,
-            })
-            st.rerun()
+        
+        # Save/Full button - check if already in basket
+        in_basket = any(x["id"] == article.id for x in st.session_state.news_basket)
+        if in_basket:
+            c2.button("📦 Full", key=f"full_rec_{unique_id}", disabled=True, use_container_width=True)
+        else:
+            if c2.button("📦 Save", key=f"save_rec_{unique_id}", use_container_width=True):
+                source_name = getattr(article.source, "name", "Unknown")
+                st.session_state.news_basket.append({
+                    "id": article.id, "title": article.title, "url": article.url, "source": source_name,
+                })
+                st.rerun()
 
 
 def create_saved_articles_grid(articles: list, cols_per_row: int):
