@@ -117,7 +117,14 @@ def render_article_card(article: Article, idx: int, tab_id: str, rec_type: str, 
         if hasattr(article, 'source') and article.source:
             meta_parts.append(getattr(article.source, "name", str(article.source)))
         if hasattr(article, 'published_at') and article.published_at:
-            meta_parts.append(str(article.published_at)[:10])
+            # Format date and time
+            pub_date = article.published_at
+            if hasattr(pub_date, 'strftime'):
+                date_str = pub_date.strftime("%Y-%m-%d")
+                time_str = pub_date.strftime("%H:%M UTC")
+                meta_parts.append(f"{date_str} {time_str}")
+            else:
+                meta_parts.append(str(pub_date)[:10])
         
         # Add category label if available
         category_badge = get_category_badge(article)
@@ -130,8 +137,11 @@ def render_article_card(article: Article, idx: int, tab_id: str, rec_type: str, 
         st.divider()
         
         c1, c2, c3 = st.columns(3)
+        
+        # Read button
         c1.link_button("Read →", article.url, use_container_width=True)
 
+        # Find Similar button
         if c2.button("🎯 Find Similar", key=f"rec_btn_{unique_id}", use_container_width=True):
             st.session_state.selected_article_id = article.id
             st.session_state.selected_article_title = article.title
@@ -142,11 +152,12 @@ def render_article_card(article: Article, idx: int, tab_id: str, rec_type: str, 
             st.session_state.navigate_to = "🎯 AI Recommendations" # Set navigation intent
             st.rerun()
 
+        # Save/Full button
         in_basket = any(x["id"] == article.id for x in st.session_state.news_basket)
         if in_basket:
-            st.button("📦 Full", key=f"full_btn_{unique_id}", disabled=True, use_container_width=True)
+            c3.button("📦 Full", key=f"full_btn_{unique_id}", disabled=True, use_container_width=True)
         else:
-            if st.button("📦 Save", key=f"save_btn_{unique_id}", use_container_width=True):
+            if c3.button("📦 Save", key=f"save_btn_{unique_id}", use_container_width=True):
                 source_name = getattr(article.source, "name", "Unknown")
                 st.session_state.news_basket.append({
                     "id": article.id, "title": article.title, "url": article.url, "source": source_name,
@@ -203,7 +214,14 @@ def render_recommendation_card(rec: dict, article: Article, idx: int, recommenda
         if hasattr(article, 'source') and article.source:
             meta_parts.append(getattr(article.source, "name", str(article.source)))
         if hasattr(article, 'published_at') and article.published_at:
-            meta_parts.append(str(article.published_at)[:10])
+            # Format date and time
+            pub_date = article.published_at
+            if hasattr(pub_date, 'strftime'):
+                date_str = pub_date.strftime("%Y-%m-%d")
+                time_str = pub_date.strftime("%H:%M UTC")
+                meta_parts.append(f"{date_str} {time_str}")
+            else:
+                meta_parts.append(str(pub_date)[:10])
         
         if meta_parts:
             st.markdown(f"<p class='card-meta'>{' • '.join(meta_parts)}</p>", unsafe_allow_html=True)
@@ -255,6 +273,23 @@ def render_saved_article_card(article: Article, idx: int):
         category_badge = get_category_badge(article)
         if category_badge:
             st.markdown(category_badge, unsafe_allow_html=True)
+        
+        # Add source and time metadata like in featured articles
+        meta_parts = []
+        if hasattr(article, 'source') and article.source:
+            meta_parts.append(getattr(article.source, "name", str(article.source)))
+        if hasattr(article, 'published_at') and article.published_at:
+            # Format date and time
+            pub_date = article.published_at
+            if hasattr(pub_date, 'strftime'):
+                date_str = pub_date.strftime("%Y-%m-%d")
+                time_str = pub_date.strftime("%H:%M UTC")
+                meta_parts.append(f"{date_str} {time_str}")
+            else:
+                meta_parts.append(str(pub_date)[:10])
+        
+        if meta_parts:
+            st.markdown(f"<p class='card-meta'>{' • '.join(meta_parts)}</p>", unsafe_allow_html=True)
         
         st.markdown(f"**{article.title}**")
 
@@ -338,7 +373,28 @@ def main():
         st.metric("Pool", pool_count)
         
         if metadata.get("last_updated"):
-            st.success(f"Updated: {metadata['last_updated'][:10]}")
+            # Parse the date and format it nicely
+            from datetime import datetime, timezone
+            try:
+                last_updated = metadata['last_updated']
+                
+                # Handle different date formats
+                if len(last_updated) == 10:  # YYYY-MM-DD format
+                    date_str = last_updated
+                    current_time = datetime.now(timezone.utc).strftime("%H:%M UTC")
+                    st.success(f"Updated: {date_str} {current_time}")
+                elif 'T' in last_updated:  # ISO format like 2025-09-15T08:32:19.388663+00:00
+                    # Parse ISO datetime and format it nicely
+                    dt = datetime.fromisoformat(last_updated.replace('Z', '+00:00'))
+                    date_str = dt.strftime("%Y-%m-%d")
+                    time_str = dt.strftime("%H:%M UTC")
+                    st.success(f"Updated: {date_str} {time_str}")
+                else:
+                    # Fallback for other formats
+                    st.success(f"Updated: {last_updated}")
+            except Exception as e:
+                # If parsing fails, show the original string
+                st.success(f"Updated: {metadata['last_updated']}")
         
         st.markdown("### Fetch News Config")
         ss.featured_count = st.slider("Featured Articles", 10, 50, ss.featured_count)
@@ -366,11 +422,10 @@ def main():
     st.markdown("<p style='text-align: center; color: #6b7280; font-size: 18px;'>Advanced recommendations with neural reranking and multi-model fusion</p>", unsafe_allow_html=True)
 
     with st.expander("⚙️ Recommender Configs", expanded=False):
-        c1, c2, c3, c4 = st.columns(4)
+        c1, c2, c3 = st.columns(3)
         ss.recommendation_type = c1.selectbox("AI Model", ["Basic", "Enhanced (Neural)", "Multi-Model"], index=["Basic", "Enhanced (Neural)", "Multi-Model"].index(ss.recommendation_type))
         ss.num_recommendations = c2.slider("Recommendations", 3, 15, ss.num_recommendations)
         ss.use_diversity = c3.checkbox("Diversity", value=ss.use_diversity)
-        grid_columns = c4.selectbox("Grid Columns", [2, 3], index=0)
         
         # Add score explanation
         if ss.recommendation_type == "Basic":
@@ -397,9 +452,9 @@ def main():
         if not featured:
             st.info("📭 No articles found. Click 'Refresh News' in the sidebar to fetch data.")
         else:
-            items_per_page = grid_columns * 4 
+            items_per_page = 2 * 4  # 2 columns * 4 rows = 8 items per page
             page_items, total_pages, ss.articles_page = paginate(featured, items_per_page, ss.articles_page)
-            create_article_grid(page_items, grid_columns, "featured", ss.recommendation_type, ss.num_recommendations, ss.use_diversity)
+            create_article_grid(page_items, 2, "featured", ss.recommendation_type, ss.num_recommendations, ss.use_diversity)
             if total_pages > 1:
                 st.divider()
                 pg_cols = st.columns([1, 2, 1])
@@ -449,9 +504,9 @@ def main():
                 # Build a robust title-matching dictionary
                 title_to_article = {a.title.strip().lower(): a for a in (featured + candidates)}
                 
-                items_per_page = grid_columns * 4
+                items_per_page = 2 * 4  # 2 columns * 4 rows = 8 items per page
                 page_recs, total_pages, ss.recs_page = paginate(rec_list, items_per_page, ss.recs_page)
-                create_recommendation_grid(page_recs, title_to_article, grid_columns, ss.recommendation_type)
+                create_recommendation_grid(page_recs, title_to_article, 2, ss.recommendation_type)
                 if total_pages > 1:
                     st.divider()
                     pg_cols = st.columns([1, 2, 1])
@@ -476,9 +531,9 @@ def main():
             
             
             if basket_articles:
-                items_per_page = grid_columns * 4
+                items_per_page = 2 * 4  # 2 columns * 4 rows = 8 items per page
                 page_articles, total_pages, ss.summ_page = paginate(basket_articles, items_per_page, ss.summ_page)
-                create_saved_articles_grid(page_articles, grid_columns)
+                create_saved_articles_grid(page_articles, 2)
             else:
                 st.warning("No articles found in loaded data. Try refreshing the news data.")
             
