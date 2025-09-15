@@ -154,7 +154,7 @@ def render_article_card(article: Article, idx: int, tab_id: str, rec_type: str, 
                 st.rerun()
 
 
-def create_recommendation_grid(recommendations, articles_dict, cols_per_row):
+def create_recommendation_grid(recommendations, articles_dict, cols_per_row, recommendation_type="Basic"):
     """Create grid of recommendation cards"""
     for i in range(0, len(recommendations), cols_per_row):
         row_recs = recommendations[i:i+cols_per_row]
@@ -171,7 +171,7 @@ def create_recommendation_grid(recommendations, articles_dict, cols_per_row):
                             break
                 
                 if article:
-                    render_recommendation_card(rec, article, i + row_recs.index(rec) + 1)
+                    render_recommendation_card(rec, article, i + row_recs.index(rec) + 1, recommendation_type)
                 else:
                     # Fallback: create a minimal article object from recommendation data
                     from collections import namedtuple
@@ -184,10 +184,10 @@ def create_recommendation_grid(recommendations, articles_dict, cols_per_row):
                         description=rec.get("description", ""),
                         source=Source(name=rec.get("source", "Unknown"))
                     )
-                    render_recommendation_card(rec, fallback_article, i + row_recs.index(rec) + 1)
+                    render_recommendation_card(rec, fallback_article, i + row_recs.index(rec) + 1, recommendation_type)
 
 
-def render_recommendation_card(rec: dict, article: Article, idx: int):
+def render_recommendation_card(rec: dict, article: Article, idx: int, recommendation_type: str = "Basic"):
     """Modern recommendation card with a blue accent, using native elements."""
     unique_id = f"rec_card_{idx}_{article.id}"
     with st.container(border=True):
@@ -198,7 +198,30 @@ def render_recommendation_card(rec: dict, article: Article, idx: int):
         if category_badge:
             st.markdown(category_badge, unsafe_allow_html=True)
         
-        st.markdown(f"<p class='card-meta'>SCORE: {rec.get('score', 'N/A')}</p>", unsafe_allow_html=True)
+        # Add source and time metadata like in featured articles
+        meta_parts = []
+        if hasattr(article, 'source') and article.source:
+            meta_parts.append(getattr(article.source, "name", str(article.source)))
+        if hasattr(article, 'published_at') and article.published_at:
+            meta_parts.append(str(article.published_at)[:10])
+        
+        if meta_parts:
+            st.markdown(f"<p class='card-meta'>{' • '.join(meta_parts)}</p>", unsafe_allow_html=True)
+        
+        score = rec.get('score', 'N/A')
+        if isinstance(score, (int, float)):
+            # Add score range information based on recommendation type
+            if recommendation_type == "Basic":
+                score_info = f"SCORE: {score:.3f} (0.0-1.0+ semantic similarity)"
+            elif recommendation_type == "Enhanced (Neural)":
+                score_info = f"SCORE: {score:.3f} (0.0-1.0+ neural reranked)"
+            elif recommendation_type == "Multi-Model":
+                score_info = f"SCORE: {score:.3f} (0.0-1.0+ multi-model fusion)"
+            else:
+                score_info = f"SCORE: {score:.3f}"
+        else:
+            score_info = f"SCORE: {score}"
+        st.markdown(f"<p class='card-meta'>{score_info}</p>", unsafe_allow_html=True)
         st.markdown(f"**{rec['title']}**")
 
         st.divider()
@@ -348,6 +371,14 @@ def main():
         ss.num_recommendations = c2.slider("Recommendations", 3, 15, ss.num_recommendations)
         ss.use_diversity = c3.checkbox("Diversity", value=ss.use_diversity)
         grid_columns = c4.selectbox("Grid Columns", [2, 3], index=0)
+        
+        # Add score explanation
+        if ss.recommendation_type == "Basic":
+            st.info("📊 **Basic**: Semantic similarity scores (0.0-1.0+) based on cosine similarity between article embeddings. Higher scores indicate more similar content.")
+        elif ss.recommendation_type == "Enhanced (Neural)":
+            st.info("🧠 **Enhanced**: Neural reranked scores (0.0-1.0+) using a trained neural network that considers semantic similarity, topic overlap, recency, and content quality.")
+        elif ss.recommendation_type == "Multi-Model":
+            st.info("🔄 **Multi-Model**: Fusion scores (0.0-1.0+) combining multiple embedding models using weighted averaging. News-specific models get higher weights.")
 
     # --- Tab implementation using styled radio buttons ---
     tab_cols = st.columns(3)
@@ -393,10 +424,16 @@ def main():
                     if result.returncode == 0 and result.stdout:
                         lines = result.stdout.strip().split("\n")
                         for line in lines:
-                            if "|" in line and line.strip():
+                            # Look for lines that start with a number followed by a dot (e.g., "1. 0.816 | ...")
+                            if line.strip() and line.strip()[0].isdigit() and "." in line and "|" in line:
                                 parts = line.split("|")
                                 if len(parts) >= 2:
-                                    score_str = parts[0].strip()
+                                    # Extract score from the first part (e.g., "1. 0.816" -> "0.816")
+                                    score_part = parts[0].strip()
+                                    if ". " in score_part:
+                                        score_str = score_part.split(". ", 1)[1].strip()
+                                    else:
+                                        score_str = score_part
                                     title = parts[1].strip()
                                     try:
                                         score = float(score_str)
@@ -414,7 +451,7 @@ def main():
                 
                 items_per_page = grid_columns * 4
                 page_recs, total_pages, ss.recs_page = paginate(rec_list, items_per_page, ss.recs_page)
-                create_recommendation_grid(page_recs, title_to_article, grid_columns)
+                create_recommendation_grid(page_recs, title_to_article, grid_columns, ss.recommendation_type)
                 if total_pages > 1:
                     st.divider()
                     pg_cols = st.columns([1, 2, 1])

@@ -366,9 +366,12 @@ def cmd_multi_model_recommend(article_id: str, k: int = 5, models: list = None):
     
     # Use multi-model search with larger pool
     query_text = f"{article.title} {article.description or ''}"
-    results = emb.multi_model_search(query_text, models=models, k=k, fusion_method="weighted_average")
+    results = emb.multi_model_search(query_text, models=models, k=k*2, fusion_method="weighted_average")  # Get more to filter out original
     
-    for i, (aid, score) in enumerate(results, 1):
+    # Filter out the original article and take top k
+    filtered_results = [(aid, score) for aid, score in results if aid != article_id][:k]
+    
+    for i, (aid, score) in enumerate(filtered_results, 1):
         candidate = db.get_article_by_id(aid)
         if candidate:
             print(f"{i}. {score:.3f} | {candidate.title}")
