@@ -16,4 +16,6 @@ lxml==5.2.2
 lxml_html_clean==0.4.2
 python-dateutil==2.9.0.post0
 streamlit==1.37.0
+transformers==4.36.2
+torch==2.1.2
 

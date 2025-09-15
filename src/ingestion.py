@@ -38,8 +38,7 @@ def extract_entities(article: Article) -> list[tuple[str, str, int]]:
     return [(n, t, c) for (n,t), c in merged.items()]
 
 
-# TODO just an architectural template
-# match with the actual api
+# TODO currently not used, will be used if API providers are used
 class NewsIngestionPipeline:
     """Pipeline for fetching and storing news articles"""
     

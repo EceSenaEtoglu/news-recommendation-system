@@ -1,10 +1,9 @@
 """
-Central configuration for retrieval and storage to avoid circular imports.
-
-These values are the single source of truth used by both retrieval and storage.
+Central configuration for all modules to avoid circular imports and scattered configs.
 """
 
 from dataclasses import dataclass
+from typing import Optional
 
 # Learning rates for prefs updates
 ENTITY_LR: float = 1.0
@@ -79,5 +78,56 @@ class RAGConfig:
     use_mmr_in_search: bool = False
     mmr_lambda: float = 0.7
     mmr_pool: int = 50
+
+
+@dataclass
+class EmbeddingModelConfig:
+    """Configuration for embedding models"""
+    name: str
+    model_path: str
+    dimension: int
+    description: str
+    is_news_specific: bool = False
+
+
+@dataclass
+class RerankFeatureConfig:
+    """Configuration for reranking feature extraction"""
+    recency_half_life_hours: float = 48.0
+    content_length_norm: int = 2000
+
+
+@dataclass
+class NeuralRerankerConfig:
+    """Configuration for neural reranker (for future use)"""
+    hidden_dim: int = 128
+    num_layers: int = 2
+    dropout: float = 0.2
+    learning_rate: float = 0.001
+    batch_size: int = 32
+    num_epochs: int = 100
+    early_stopping_patience: int = 10
+
+
+@dataclass
+class RecommendationConfig:
+    """Lightweight config for the AI recommender."""
+    top_k: int = 10
+    min_score: float = 0.0  # cosine similarity threshold in FAISS (0..1 after normalize)
+    topic_overlap_boost: float = 0.1  # additional boost per topic overlap (small)
+    max_topic_bonus: float = 0.5      # cap total bonus from topics
+
+    # MMR diversification
+    use_mmr: bool = False
+    mmr_lambda: float = 0.7  # trade-off: 1.0 = all relevance, 0.0 = all diversity
+    mmr_pool: int = 50       # candidate pool size before MMR selection
+    
+    # Neural reranker settings (for future use - requires user interaction data)
+    use_neural_reranker: bool = False
+    neural_config: Optional[NeuralRerankerConfig] = None
+    
+    def __post_init__(self):
+        if self.neural_config is None:
+            self.neural_config = NeuralRerankerConfig()
 
 

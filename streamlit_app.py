@@ -10,22 +10,34 @@ from src.data_models import Article
 from src.providers.fixture import FixtureProvider
 from scripts.demo import fetch_and_setup_data
 
-# ---------------------------
 # Helpers
-# ---------------------------
+# Import summarization model
+from src.summarization import summarize_article
 
-# TODO integrate a summarization model
 def simple_summarize(article: Article, max_sentences: int = 3) -> str:
-    """Simple extractive summarization using first sentences of content"""
+    """Enhanced summarization using transformer model with fallback"""
     if not getattr(article, "content", None) or not isinstance(article.content, str):
         return (getattr(article, "description", "") or article.title)[:350]
-    sentences = article.content.split(". ")
-    summary = ". ".join(sentences[:max_sentences])
-    if not summary.endswith("."):
-        summary += "."
-    return summary
+    
+    # Use the new summarization model
+    try:
+        summary = summarize_article(
+            content=article.content,
+            title=article.title,
+            max_length=300
+        )
+        return summary
+    except Exception as e:
+        # Fallback to simple extractive summarization
+        print(f"Summarization failed: {e}")
+        sentences = article.content.split(". ")
+        summary = ". ".join(sentences[:max_sentences])
+        if not summary.endswith("."):
+            summary += "."
+        return summary
 
 
+# TODO, for the uknown category a category extraction model can be used
 def get_category_badge(article: Article) -> str:
     """Get a styled category badge for an article"""
     category = None
@@ -117,7 +129,14 @@ def render_article_card(article: Article, idx: int, tab_id: str, rec_type: str, 
         if hasattr(article, 'source') and article.source:
             meta_parts.append(getattr(article.source, "name", str(article.source)))
         if hasattr(article, 'published_at') and article.published_at:
-            meta_parts.append(str(article.published_at)[:10])
+            # Format date and time
+            pub_date = article.published_at
+            if hasattr(pub_date, 'strftime'):
+                date_str = pub_date.strftime("%Y-%m-%d")
+                time_str = pub_date.strftime("%H:%M UTC")
+                meta_parts.append(f"{date_str} {time_str}")
+            else:
+                meta_parts.append(str(pub_date)[:10])
         
         # Add category label if available
         category_badge = get_category_badge(article)
@@ -130,8 +149,11 @@ def render_article_card(article: Article, idx: int, tab_id: str, rec_type: str, 
         st.divider()
         
         c1, c2, c3 = st.columns(3)
+        
+        # Read button
         c1.link_button("Read →", article.url, use_container_width=True)
 
+        # Find Similar button
         if c2.button("🎯 Find Similar", key=f"rec_btn_{unique_id}", use_container_width=True):
             st.session_state.selected_article_id = article.id
             st.session_state.selected_article_title = article.title
@@ -142,11 +164,12 @@ def render_article_card(article: Article, idx: int, tab_id: str, rec_type: str, 
             st.session_state.navigate_to = "🎯 AI Recommendations" # Set navigation intent
             st.rerun()
 
+        # Save/Full button
         in_basket = any(x["id"] == article.id for x in st.session_state.news_basket)
         if in_basket:
-            st.button("📦 Full", key=f"full_btn_{unique_id}", disabled=True, use_container_width=True)
+            c3.button("📦 Full", key=f"full_btn_{unique_id}", disabled=True, use_container_width=True)
         else:
-            if st.button("📦 Save", key=f"save_btn_{unique_id}", use_container_width=True):
+            if c3.button("📦 Save", key=f"save_btn_{unique_id}", use_container_width=True):
                 source_name = getattr(article.source, "name", "Unknown")
                 st.session_state.news_basket.append({
                     "id": article.id, "title": article.title, "url": article.url, "source": source_name,
@@ -154,40 +177,99 @@ def render_article_card(article: Article, idx: int, tab_id: str, rec_type: str, 
                 st.rerun()
 
 
-def create_recommendation_grid(recommendations, articles_dict, cols_per_row):
+def create_recommendation_grid(recommendations, articles_dict, cols_per_row, recommendation_type="Basic"):
     """Create grid of recommendation cards"""
     for i in range(0, len(recommendations), cols_per_row):
         row_recs = recommendations[i:i+cols_per_row]
         cols = st.columns(cols_per_row)
         for col, rec in zip(cols, row_recs):
             with col:
-                # Use robust matching - try exact title first, then fuzzy matching
-                article = articles_dict.get(rec["title"].strip().lower())
-                if not article:
-                    # Try fuzzy matching if exact match fails
-                    for title, art in articles_dict.items():
-                        if rec["title"].strip().lower() in title or title in rec["title"].strip().lower():
-                            article = art
-                            break
+                # Try to find the article for additional metadata, but use recommendation data as primary
+                rec_title = rec["title"].strip().lower()
+                article = articles_dict.get(rec_title)
                 
-                if article:
-                    render_recommendation_card(rec, article, i + row_recs.index(rec) + 1)
-                else:
-                    # Fallback: create a minimal article object from recommendation data
+                # If we have a URL in the recommendation, use it directly
+                if rec.get("url") and rec["url"] != "#":
+                    # Create article object from recommendation data
                     from collections import namedtuple
                     Source = namedtuple("Source", ["name"])
-                    Article = namedtuple("Article", ["id", "title", "url", "description", "source"])
-                    fallback_article = Article(
-                        id=rec.get("id", "unknown"),
-                        title=rec["title"],
-                        url=rec.get("url", "#"),
-                        description=rec.get("description", ""),
-                        source=Source(name=rec.get("source", "Unknown"))
-                    )
-                    render_recommendation_card(rec, fallback_article, i + row_recs.index(rec) + 1)
+                    Article = namedtuple("Article", ["id", "title", "url", "description", "source", "published_at", "topics"])
+                    
+                    # Use source from recommendation data
+                    source_name = rec.get("source", "Unknown")
+                    
+                    # Try to get additional metadata from matched article
+                    if article:
+                        recommendation_article = Article(
+                            id=article.id,
+                            title=rec["title"],
+                            url=rec["url"],
+                            description=getattr(article, "description", ""),
+                            source=Source(name=source_name),
+                            published_at=getattr(article, "published_at", None),
+                            topics=getattr(article, "topics", [])
+                        )
+                    else:
+                        # Fallback with minimal data
+                        recommendation_article = Article(
+                            id=rec.get("id", "unknown"),
+                            title=rec["title"],
+                            url=rec["url"],
+                            description=rec.get("description", ""),
+                            source=Source(name=source_name),
+                            published_at=rec.get("published_at", None),
+                            topics=rec.get("topics", [])
+                        )
+                    
+                    render_recommendation_card(rec, recommendation_article, i + row_recs.index(rec) + 1, recommendation_type)
+                else:
+                    # Fallback to old matching logic if no URL provided
+                    if not article:
+                        # Try fuzzy matching strategies
+                        best_match = None
+                        best_score = 0
+                        
+                        for title, art in articles_dict.items():
+                            # Strategy 1: One title contains the other
+                            if rec_title in title or title in rec_title:
+                                article = art
+                                break
+                            
+                            # Strategy 2: Word overlap scoring
+                            rec_words = set(rec_title.split())
+                            title_words = set(title.split())
+                            if rec_words and title_words:
+                                overlap = len(rec_words.intersection(title_words))
+                                total_words = len(rec_words.union(title_words))
+                                score = overlap / total_words if total_words > 0 else 0
+                                
+                                if score > best_score and score > 0.3:  # At least 30% word overlap
+                                    best_match = art
+                                    best_score = score
+                        
+                        if not article and best_match:
+                            article = best_match
+                    
+                    if article:
+                        render_recommendation_card(rec, article, i + row_recs.index(rec) + 1, recommendation_type)
+                    else:
+                        # Fallback: create a minimal article object from recommendation data
+                        from collections import namedtuple
+                        Source = namedtuple("Source", ["name"])
+                        Article = namedtuple("Article", ["id", "title", "url", "description", "source", "published_at", "topics"])
+                        fallback_article = Article(
+                            id=rec.get("id", "unknown"),
+                            title=rec["title"],
+                            url=rec.get("url", "#"),
+                            description=rec.get("description", ""),
+                            source=Source(name=rec.get("source", "Unknown")),
+                            published_at=rec.get("published_at", None),
+                            topics=rec.get("topics", [])
+                        )
+                        render_recommendation_card(rec, fallback_article, i + row_recs.index(rec) + 1, recommendation_type)
 
 
-def render_recommendation_card(rec: dict, article: Article, idx: int):
+def render_recommendation_card(rec: dict, article: Article, idx: int, recommendation_type: str = "Basic"):
     """Modern recommendation card with a blue accent, using native elements."""
     unique_id = f"rec_card_{idx}_{article.id}"
     with st.container(border=True):
@@ -198,18 +280,54 @@ def render_recommendation_card(rec: dict, article: Article, idx: int):
         if category_badge:
             st.markdown(category_badge, unsafe_allow_html=True)
         
-        st.markdown(f"<p class='card-meta'>SCORE: {rec.get('score', 'N/A')}</p>", unsafe_allow_html=True)
+        # Add source and time metadata like in featured articles
+        meta_parts = []
+        if hasattr(article, 'source') and article.source:
+            meta_parts.append(getattr(article.source, "name", str(article.source)))
+        if hasattr(article, 'published_at') and article.published_at:
+            # Format date and time
+            pub_date = article.published_at
+            if hasattr(pub_date, 'strftime'):
+                date_str = pub_date.strftime("%Y-%m-%d")
+                time_str = pub_date.strftime("%H:%M UTC")
+                meta_parts.append(f"{date_str} {time_str}")
+            else:
+                meta_parts.append(str(pub_date)[:10])
+        
+        if meta_parts:
+            st.markdown(f"<p class='card-meta'>{' • '.join(meta_parts)}</p>", unsafe_allow_html=True)
+        
+        score = rec.get('score', 'N/A')
+        if isinstance(score, (int, float)):
+            # Add score range information based on recommendation type
+            if recommendation_type == "Basic":
+                score_info = f"SCORE: {score:.3f} (0.0-1.0+ semantic similarity)"
+            elif recommendation_type == "Enhanced (Neural)":
+                score_info = f"SCORE: {score:.3f} (0.0-1.0+ neural reranked)"
+            elif recommendation_type == "Multi-Model":
+                score_info = f"SCORE: {score:.3f} (0.0-1.0+ multi-model fusion)"
+            else:
+                score_info = f"SCORE: {score:.3f}"
+        else:
+            score_info = f"SCORE: {score}"
+        st.markdown(f"<p class='card-meta'>{score_info}</p>", unsafe_allow_html=True)
         st.markdown(f"**{rec['title']}**")
 
         st.divider()
         c1, c2 = st.columns(2)
         c1.link_button("Read →", article.url, use_container_width=True)
-        if c2.button("📦 Save", key=f"save_rec_{unique_id}", use_container_width=True):
-            source_name = getattr(article.source, "name", "Unknown")
-            st.session_state.news_basket.append({
-                "id": article.id, "title": article.title, "url": article.url, "source": source_name,
-            })
-            st.rerun()
+        
+        # Save/Full button - check if already in basket
+        in_basket = any(x["id"] == article.id for x in st.session_state.news_basket)
+        if in_basket:
+            c2.button("📦 Full", key=f"full_rec_{unique_id}", disabled=True, use_container_width=True)
+        else:
+            if c2.button("📦 Save", key=f"save_rec_{unique_id}", use_container_width=True):
+                source_name = getattr(article.source, "name", "Unknown")
+                st.session_state.news_basket.append({
+                    "id": article.id, "title": article.title, "url": article.url, "source": source_name,
+                })
+                st.rerun()
 
 
 def create_saved_articles_grid(articles: list, cols_per_row: int):
@@ -233,6 +351,23 @@ def render_saved_article_card(article: Article, idx: int):
         if category_badge:
             st.markdown(category_badge, unsafe_allow_html=True)
         
+        # Add source and time metadata like in featured articles
+        meta_parts = []
+        if hasattr(article, 'source') and article.source:
+            meta_parts.append(getattr(article.source, "name", str(article.source)))
+        if hasattr(article, 'published_at') and article.published_at:
+            # Format date and time
+            pub_date = article.published_at
+            if hasattr(pub_date, 'strftime'):
+                date_str = pub_date.strftime("%Y-%m-%d")
+                time_str = pub_date.strftime("%H:%M UTC")
+                meta_parts.append(f"{date_str} {time_str}")
+            else:
+                meta_parts.append(str(pub_date)[:10])
+        
+        if meta_parts:
+            st.markdown(f"<p class='card-meta'>{' • '.join(meta_parts)}</p>", unsafe_allow_html=True)
+        
         st.markdown(f"**{article.title}**")
 
         # Conditional Summary Display
@@ -248,7 +383,9 @@ def render_saved_article_card(article: Article, idx: int):
             st.divider()
             c1, c2, c3 = st.columns(3)
             c1.link_button("Read →", article.url, use_container_width=True)
-            c2.button("📝 Summarize", key=f"summ_btn_{unique_id}", use_container_width=True)
+            if c2.button("📝 Summarize", key=f"summ_btn_{unique_id}", use_container_width=True):
+                st.session_state.summarize_id = article.id
+                st.rerun()
             if c3.button("🗑️ Remove", key=f"remove_btn_{unique_id}", use_container_width=True):
                 st.session_state.news_basket = [x for x in st.session_state.news_basket if x["id"] != article.id]
                 st.rerun()
@@ -257,7 +394,7 @@ def render_saved_article_card(article: Article, idx: int):
 def main():
     """Main Streamlit application"""
     st.set_page_config(
-        page_title="RAGify-News AI Dashboard",
+        page_title="AI News Dashboard",
         page_icon="🤖",
         layout="wide",
         initial_sidebar_state="expanded"
@@ -285,7 +422,7 @@ def main():
     ss.setdefault("selected_article_id", None)
     ss.setdefault("selected_article_title", None)
     ss.setdefault("selected_article_url", None)
-    ss.setdefault("recommendation_type", "Basic")
+    ss.setdefault("recommendation_type", "Multi-Model")
     ss.setdefault("num_recommendations", 5)
     ss.setdefault("use_diversity", True)
     ss.setdefault("articles_page", 1)
@@ -304,7 +441,7 @@ def main():
         
     # Sidebar
     with st.sidebar:
-        st.title("🤖 RAGify-News")
+        st.title("🤖 AI News")
         
         # System Status
         fixtures_folder = "src/providers/news_fixtures"
@@ -315,14 +452,35 @@ def main():
         st.metric("Pool", pool_count)
         
         if metadata.get("last_updated"):
-            st.success(f"Updated: {metadata['last_updated'][:10]}")
+            # Parse the date and format it nicely
+            from datetime import datetime, timezone
+            try:
+                last_updated = metadata['last_updated']
+                
+                # Handle different date formats
+                if len(last_updated) == 10:  # YYYY-MM-DD format
+                    date_str = last_updated
+                    current_time = datetime.now(timezone.utc).strftime("%H:%M UTC")
+                    st.success(f"Updated: {date_str} {current_time}")
+                elif 'T' in last_updated:  # ISO format like 2025-09-15T08:32:19.388663+00:00
+                    # Parse ISO datetime and format it nicely
+                    dt = datetime.fromisoformat(last_updated.replace('Z', '+00:00'))
+                    date_str = dt.strftime("%Y-%m-%d")
+                    time_str = dt.strftime("%H:%M UTC")
+                    st.success(f"Updated: {date_str} {time_str}")
+                else:
+                    # Fallback for other formats
+                    st.success(f"Updated: {last_updated}")
+            except Exception as e:
+                # If parsing fails, show the original string
+                st.success(f"Updated: {metadata['last_updated']}")
         
         st.markdown("### Fetch News Config")
         ss.featured_count = st.slider("Featured Articles", 10, 50, ss.featured_count)
         ss.candidate_count = st.slider("Candidate Pool", 50, 200, ss.candidate_count)
 
         if st.button("🔄 Refresh News", type="primary", use_container_width=True):
-            with st.spinner("Fetching latest news and building index..."):
+            with st.spinner("Fetching latest news and building index... This can take a short while."):
                 try:
                     success = fetch_and_setup_data(featured_count=ss.featured_count, pool_count=ss.candidate_count)
                     if success: st.success("✅ News refreshed!"); st.rerun()
@@ -338,18 +496,23 @@ def main():
 
     featured, candidates, all_articles = load_fixtures(fixtures_folder, ss.featured_count, ss.candidate_count)
     
-    # Debug: Show what was loaded
-    st.write(f"Debug: Loaded {len(featured)} featured articles, {len(candidates)} candidates, {len(all_articles)} total articles")
 
     st.title("🤖 AI-Powered News Dashboard")
     st.markdown("<p style='text-align: center; color: #6b7280; font-size: 18px;'>Advanced recommendations with neural reranking and multi-model fusion</p>", unsafe_allow_html=True)
 
     with st.expander("⚙️ Recommender Configs", expanded=False):
-        c1, c2, c3, c4 = st.columns(4)
+        c1, c2, c3 = st.columns(3)
         ss.recommendation_type = c1.selectbox("AI Model", ["Basic", "Enhanced (Neural)", "Multi-Model"], index=["Basic", "Enhanced (Neural)", "Multi-Model"].index(ss.recommendation_type))
         ss.num_recommendations = c2.slider("Recommendations", 3, 15, ss.num_recommendations)
         ss.use_diversity = c3.checkbox("Diversity", value=ss.use_diversity)
-        grid_columns = c4.selectbox("Grid Columns", [2, 3], index=0)
+        
+        # Add score explanation
+        if ss.recommendation_type == "Basic":
+            st.info("📊 **Basic**: Semantic similarity scores (0.0-1.0+) based on cosine similarity between article embeddings. Higher scores indicate more similar content.")
+        elif ss.recommendation_type == "Enhanced (Neural)":
+            st.info("🧠 **Enhanced**: Neural reranked scores (0.0-1.0+) using a trained neural network that considers semantic similarity, topic overlap, recency, and content quality.")
+        elif ss.recommendation_type == "Multi-Model":
+            st.info("🔄 **Multi-Model**: Fusion scores (0.0-1.0+) combining multiple embedding models using weighted averaging. News-specific models get higher weights.")
 
     # --- Tab implementation using styled radio buttons ---
     tab_cols = st.columns(3)
@@ -368,9 +531,9 @@ def main():
         if not featured:
             st.info("📭 No articles found. Click 'Refresh News' in the sidebar to fetch data.")
         else:
-            items_per_page = grid_columns * 4 
+            items_per_page = 2 * 4  # 2 columns * 4 rows = 8 items per page
             page_items, total_pages, ss.articles_page = paginate(featured, items_per_page, ss.articles_page)
-            create_article_grid(page_items, grid_columns, "featured", ss.recommendation_type, ss.num_recommendations, ss.use_diversity)
+            create_article_grid(page_items, 2, "featured", ss.recommendation_type, ss.num_recommendations, ss.use_diversity)
             if total_pages > 1:
                 st.divider()
                 pg_cols = st.columns([1, 2, 1])
@@ -388,23 +551,59 @@ def main():
             if cache_key not in ss:
                 with st.spinner(f"Generating {ss.recommendation_type.lower()} recommendations..."):
                     cmd_map = { "Basic": ["--recommend", ss.selected_article_id], "Enhanced (Neural)": ["--enhanced", ss.selected_article_id], "Multi-Model": ["--multi-model", ss.selected_article_id], }
-                    cmd = [sys.executable, "scripts/demo.py"] + cmd_map[ss.recommendation_type]
+                    cmd = [sys.executable, "scripts/demo.py"] + cmd_map[ss.recommendation_type] + ["--k", str(ss.num_recommendations)]
                     result = subprocess.run(cmd, capture_output=True, text=True, check=False, cwd=os.getcwd(), env=os.environ.copy())
                     
                     recommendations = []
                     if result.returncode == 0 and result.stdout:
                         lines = result.stdout.strip().split("\n")
+                        current_rec = None
+                        
                         for line in lines:
-                            if "|" in line and line.strip():
+                            line = line.strip()
+                            if not line:
+                                continue
+                                
+                            # Look for lines that start with a number followed by a dot (e.g., "1. 0.816 | ...")
+                            if line[0].isdigit() and "." in line and "|" in line:
+                                # Save previous recommendation if exists
+                                if current_rec:
+                                    recommendations.append(current_rec)
+                                
+                                # Parse new recommendation
                                 parts = line.split("|")
                                 if len(parts) >= 2:
-                                    score_str = parts[0].strip()
-                                    title = parts[1].strip()
+                                    # Extract score from the first part (e.g., "1. 0.816" -> "0.816")
+                                    score_part = parts[0].strip()
+                                    if ". " in score_part:
+                                        score_str = score_part.split(". ", 1)[1].strip()
+                                    else:
+                                        score_str = score_part
+                                    
+                                    # Parse title and URL (new format: "title | url")
+                                    if len(parts) >= 3:
+                                        # New format: "1. 0.816 | title | url"
+                                        title = parts[1].strip()
+                                        url = parts[2].strip()
+                                    else:
+                                        # Old format: "1. 0.816 | title"
+                                        title = parts[1].strip()
+                                        url = "#"
+                                    
                                     try:
-                                        score = float(score_str.split(".")[0] + "." + score_str.split(".")[1][:3])
-                                        recommendations.append({"title": title, "score": score})
+                                        score = float(score_str)
+                                        current_rec = {"title": title, "score": score, "url": url, "source": "Unknown"}
                                     except:
-                                        recommendations.append({"title": title, "score": 0.0})
+                                        current_rec = {"title": title, "score": 0.0, "url": url, "source": "Unknown"}
+                            
+                            # Look for source information (e.g., "   Source: www.cnbc.com")
+                            elif line.startswith("   Source: ") and current_rec:
+                                source = line.replace("   Source: ", "").strip()
+                                current_rec["source"] = source
+                        
+                        # Add the last recommendation
+                        if current_rec:
+                            recommendations.append(current_rec)
                     
                     ss[cache_key] = recommendations
             
@@ -414,9 +613,9 @@ def main():
                 # Build a robust title-matching dictionary
                 title_to_article = {a.title.strip().lower(): a for a in (featured + candidates)}
                 
-                items_per_page = grid_columns * 4
+                items_per_page = 2 * 4  # 2 columns * 4 rows = 8 items per page
                 page_recs, total_pages, ss.recs_page = paginate(rec_list, items_per_page, ss.recs_page)
-                create_recommendation_grid(page_recs, title_to_article, grid_columns)
+                create_recommendation_grid(page_recs, title_to_article, 2, ss.recommendation_type)
                 if total_pages > 1:
                     st.divider()
                     pg_cols = st.columns([1, 2, 1])
@@ -430,9 +629,6 @@ def main():
         if not ss.news_basket:
             st.info("🧺 Your basket is empty. Save articles from other tabs to see them here.")
         else:
-            # Debug: Show what's in the basket and all_articles
-            st.write(f"Debug: Basket has {len(ss.news_basket)} items")
-            st.write(f"Debug: All articles has {len(all_articles)} items")
             
             basket_articles = []
             for item in ss.news_basket:
@@ -442,12 +638,11 @@ def main():
                 else:
                     st.warning(f"Article not found in loaded data: {item['title']} (ID: {item['id']})")
             
-            st.write(f"Debug: Found {len(basket_articles)} articles in basket")
             
             if basket_articles:
-                items_per_page = grid_columns * 4
+                items_per_page = 2 * 4  # 2 columns * 4 rows = 8 items per page
                 page_articles, total_pages, ss.summ_page = paginate(basket_articles, items_per_page, ss.summ_page)
-                create_saved_articles_grid(page_articles, grid_columns)
+                create_saved_articles_grid(page_articles, 2)
             else:
                 st.warning("No articles found in loaded data. Try refreshing the news data.")
             

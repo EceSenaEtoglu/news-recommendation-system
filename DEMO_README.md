@@ -1,142 +1,168 @@
-# 🚀 RAGify-News AI Demo
+# 🚀 AI News MVP
 
-A comprehensive demonstration of the AI-powered news recommendation system showcasing neural reranking, multi-model embeddings, and advanced recommendation algorithms.
+An **MVP** for hands-on experience with modern AI technologies including **FAISS**, **semantic retrieval**, **neural reranking**, **multi-model fusion**, and **transformer-based summarization**. This project demonstrates practical implementation of advanced recommendation systems and RAG (Retrieval-Augmented Generation) architectures.
+More features and improvements coming soon!
 
 ## 🎯 Quick Start
 
-### 1. Setup Data
+### **Option 1: Web UI Demo (Recommended)**
+
+The easiest way to explore the system:
+
 ```bash
-# Setup everything in one command
+# 0. Install dependencies (one-time)
+pip install -r requirements.txt
+
+# 1. Setup data (one-time)
 python scripts/demo.py --setup
-```
 
-### 2. Run Demo
-
-#### **Command Line Demo**
-```bash
-# Run comprehensive demo
-python scripts/demo.py --demo
-
-# Or just run the demo (default)
-python scripts/demo.py
-```
-
-#### **Web UI Demo**
-```bash
-# Launch Streamlit web interface
+# 2. Launch interactive web interface
 streamlit run streamlit_app.py
 ```
 
-The Streamlit app provides:
-- 🎯 **Interactive recommendations** with different AI models
-- 🚀 **One-click AI demo** button
-- 📊 **Visual interface** for exploring articles
-- ⚙️ **Easy data setup** and index rebuilding
+**Web Interface Features:**
+- 🎯 **Interactive AI Recommendations** with multiple models
+- 📰 **Featured Articles** with semantic search
+- 📚 **Saved Articles** with AI summarization
+- ⚙️ **Real-time Configuration** of AI parameters
+- 🔄 **Live News Data Refresh** from RSS feeds
 
-## 🧠 What the Demo Shows
+### **Option 2: Command Line Interface**
 
-### **Demo 1: Multi-Model Embeddings**
-- Lists all available embedding models
-- Tests different models (general vs news-specific)
-- Shows embedding dimensions and capabilities
+For developers and advanced users:
 
-### **Demo 2: Neural Reranker**
-- Initializes neural network reranker
-- Trains on synthetic data
-- Shows advanced feature extraction (10+ features)
+```bash
+# Install dependencies (if not already done)
+pip install -r requirements.txt
 
-### **Demo 3: Enhanced Recommendations**
-- **Basic**: Simple semantic similarity
-- **Neural Reranker**: Deep learning reranking
-- **MMR Diversification**: Diversity-aware selection
-- **Full Enhanced**: Neural + MMR combined
+# Run comprehensive demo
+python scripts/demo.py --demo
 
-### **Demo 4: Multi-Model Fusion**
-- **Weighted Average**: Combines scores with weights
-- **Rank Fusion**: Reciprocal rank fusion
-- **Max Score**: Conservative maximum approach
+# Get recommendations for specific articles
+python scripts/demo.py --recommend <article_id>
+python scripts/demo.py --enhanced <article_id>
+python scripts/demo.py --multi-model <article_id>
+```
 
-### **Demo 5: CLI Commands**
-- Lists all available commands
-- Shows usage examples
-- Provides next steps
+## 🧠 Technologies Demonstrated
 
-## 🎯 Available Commands
+### **Core AI Technologies**
+- **🔍 FAISS Vector Search**: High-performance similarity search
+- **🧠 Sentence Transformers**: Multi-model embedding systems
+- **⚡ Neural Reranking**: Deep learning for recommendation refinement
+- **🔄 Multi-Model Fusion**: Combining multiple AI models
+- **📝 Transformer Summarization**: BART-based article summarization
+- **🌐 Graph RAG**: Entity-based recommendation expansion
 
+### **Advanced Features**
+- **🎯 MMR Diversification**: Preventing repetitive recommendations
+- **📊 Logistic Reranking**: 10+ feature-based scoring
+- **🔗 Entity Extraction**: spaCy NER for relationship discovery
+- **⚖️ Cross-Encoder**: Neural relevance scoring
+- **📈 Multi-Model Embeddings**: News-specific vs general models
+- **🌐 Graph RAG**: Entity-based recommendation expansion
+
+## 🧠 Key AI Concepts Explained
+
+### **🎯 MMR (Maximal Marginal Relevance)**
+**What it does**: Prevents repetitive recommendations by balancing relevance with diversity.
+
+**How it works**:
+- **Relevance Score**: How similar an article is to your query
+- **Diversity Score**: How different it is from already selected articles
+- **Balance**: `MMR = λ × Relevance - (1-λ) × Diversity`
+
+**Example**: If you're reading about "AI", MMR ensures you get diverse AI topics (healthcare AI, finance AI, ethics AI) instead of 5 similar "AI breakthrough" articles.
+
+### **🌐 Graph RAG (Retrieval-Augmented Generation)**
+**What it does**: Uses entity relationships to find more relevant articles.
+
+**How it works**:
+1. **Entity Extraction**: Identifies people, organizations, locations in articles
+2. **Relationship Building**: Maps connections between entities
+3. **Graph Expansion**: Finds articles mentioning related entities
+4. **Enhanced Retrieval**: Combines semantic search with entity-based expansion
+
+**Example**: Reading about "Tesla" → finds articles about "Elon Musk", "electric vehicles", "autonomous driving" through entity relationships.
+
+## 🎮 Web Interface Guide
+
+### **Main Dashboard**
+1. **📰 Featured Articles**: Browse curated news with semantic search
+2. **🎯 AI Recommendations**: Get personalized suggestions using different AI models
+3. **📚 Saved Articles**: Manage your reading list with AI summaries
+
+### **AI Model Options**
+- **Basic**: Fast semantic similarity search
+- **Enhanced (Neural)**: Deep learning reranking (future use)
+- **Multi-Model**: Fusion of multiple embedding models (default)
+
+### **Interactive Features**
+- **Real-time Configuration**: Adjust recommendation count, diversity settings
+- **Score Explanations**: Understand how AI calculates relevance
+- **One-Click Summarization**: AI-powered article summaries
+- **Live Data Refresh**: Fetch latest news from RSS feeds
+
+## 🔧 Command Line Features
+
+### **Available Commands**
 | Command | Description |
 |---------|-------------|
 | `--setup` | Setup data (import fixtures and build index) |
-| `--demo` | Run comprehensive demo |
-| `--recommend <id>` | Basic recommendations for article ID |
-| `--enhanced <id>` | Enhanced recommendations with neural reranker |
+| `--fetch` | Fetch latest news and rebuild index |
+| `--demo` | Run comprehensive AI demo |
+| `--recommend <id>` | Basic semantic recommendations |
+| `--enhanced <id>` | Enhanced recommendations with reranking |
 | `--multi-model <id>` | Multi-model fusion recommendations |
 | `--list-models` | List available embedding models |
-| `--model-info` | Show current model information |
 
-## 🔧 Advanced Usage
-
-### Enhanced Recommendations
+### **Advanced Usage Examples**
 ```bash
-# Use neural reranker
-python scripts/demo.py --enhanced <article_id>
+# Get 5 recommendations with diversity
+python scripts/demo.py --recommend <article_id> --k 5 --diversity
 
-# Use specific model
+# Use specific embedding model
 python scripts/demo.py --enhanced <article_id> --model news-similarity
-```
 
-### Multi-Model Fusion
-```bash
-# Default models
-python scripts/demo.py --multi-model <article_id>
-
-# Custom models
+# Multi-model fusion with custom models
 python scripts/demo.py --multi-model <article_id> --models all-MiniLM-L6-v2 news-similarity
 ```
 
-### Model Management
-```bash
-# List available models
-python scripts/demo.py --list-models
-
-# Show current model info
-python scripts/demo.py --model-info
-```
-
-## 📊 Expected Output
-
-The demo will show:
-- ✅ Database statistics
-- 🤖 Available embedding models
-- 🧠 Neural reranker training progress
-- 🎯 Different recommendation approaches
-- 🔄 Multi-model fusion results
-- 📋 Available CLI commands
-
-## 🚀 Next Steps
-
-After running the demo:
-1. Try enhanced recommendations with specific articles
-2. Experiment with different embedding models
-3. Compare basic vs enhanced approaches
-4. Explore multi-model fusion methods
+### **Coming Soon**
+- 🔮 **User Profiles**: Personalized recommendations
+- 🔮 **Real-time Learning**: Continuous model improvement
+- 🔮 **Advanced Analytics**: Recommendation insights
+- 🔮 **API Endpoints**: RESTful service integration
+- 🔮 **Mobile App**: Cross-platform experience
 
 ## 🐛 Troubleshooting
 
-### No Articles Error
+### **Setup Issues**
 ```bash
-❌ No articles in database!
-Please run: python scripts/demo.py --setup
+# Install dependencies first
+pip install -r requirements.txt
+
+# If no articles found
+python scripts/demo.py --setup
+
+# If models fail to load
+python scripts/demo.py --fetch
 ```
 
-### Model Download Issues
-- Check internet connection
-- Some models may take time to download
-- Fallback to default model if specific model fails
+### **Common Installation Issues**
+- **Streamlit not found**: `pip install streamlit`
+- **FAISS installation**: `pip install faiss-cpu` (or `faiss-gpu` for GPU)
+- **spaCy model**: `python -m spacy download en_core_web_sm`
+- **Transformers**: `pip install transformers torch`
 
-### Memory Issues
-- Use smaller models: `--model all-MiniLM-L6-v2`
-- Reduce batch size in neural config
-- Close other applications
+### **Performance Optimization**
+- Use smaller models for faster loading
+- Reduce recommendation count for better performance
+- Enable diversity for more varied results
+
+### **Common Issues**
+- **Memory**: Close other applications for large models
+- **Network**: Ensure internet connection for model downloads
+- **Dependencies**: Install all requirements: `pip install -r requirements.txt`
 
 ---
-
