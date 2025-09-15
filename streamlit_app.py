@@ -11,16 +11,30 @@ from src.providers.fixture import FixtureProvider
 from scripts.demo import fetch_and_setup_data
 
 # Helpers
-# TODO integrate a summarization model
+# Import summarization model
+from src.summarization import summarize_article
+
 def simple_summarize(article: Article, max_sentences: int = 3) -> str:
-    """Simple extractive summarization using first sentences of content"""
+    """Enhanced summarization using transformer model with fallback"""
     if not getattr(article, "content", None) or not isinstance(article.content, str):
         return (getattr(article, "description", "") or article.title)[:350]
-    sentences = article.content.split(". ")
-    summary = ". ".join(sentences[:max_sentences])
-    if not summary.endswith("."):
-        summary += "."
-    return summary
+    
+    # Use the new summarization model
+    try:
+        summary = summarize_article(
+            content=article.content,
+            title=article.title,
+            max_length=150
+        )
+        return summary
+    except Exception as e:
+        # Fallback to simple extractive summarization
+        print(f"Summarization failed: {e}")
+        sentences = article.content.split(". ")
+        summary = ". ".join(sentences[:max_sentences])
+        if not summary.endswith("."):
+            summary += "."
+        return summary
 
 
 # TODO, for the uknown category a category extraction model can be used
@@ -369,7 +383,9 @@ def render_saved_article_card(article: Article, idx: int):
             st.divider()
             c1, c2, c3 = st.columns(3)
             c1.link_button("Read →", article.url, use_container_width=True)
-            c2.button("📝 Summarize", key=f"summ_btn_{unique_id}", use_container_width=True)
+            if c2.button("📝 Summarize", key=f"summ_btn_{unique_id}", use_container_width=True):
+                st.session_state.summarize_id = article.id
+                st.rerun()
             if c3.button("🗑️ Remove", key=f"remove_btn_{unique_id}", use_container_width=True):
                 st.session_state.news_basket = [x for x in st.session_state.news_basket if x["id"] != article.id]
                 st.rerun()
