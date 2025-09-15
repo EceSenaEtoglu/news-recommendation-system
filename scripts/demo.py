@@ -299,7 +299,10 @@ def cmd_recommend(article_id: str, k: int = 5):
     recommendations = rec.recommend_for_article(article, k=k)
     for i, (candidate, score) in enumerate(recommendations, 1):
         explanation = rec.explain_recommendation(article, candidate)
-        print(f"{i}. {score:.3f} | {candidate.title}")
+        source_name = getattr(candidate.source, "name", "Unknown") if hasattr(candidate, "source") and candidate.source else "Unknown"
+        url = getattr(candidate, "url", "#")
+        print(f"{i}. {score:.3f} | {candidate.title} | {url}")
+        print(f"   Source: {source_name}")
         print(f"   {explanation}")
         print()
 
@@ -336,7 +339,10 @@ def cmd_enhanced_recommend(article_id: str, k: int = 5, model_name: str = None):
     recommendations = rec.recommend_for_article(article, k=k)
     for i, (candidate, score) in enumerate(recommendations, 1):
         explanation = rec.explain_recommendation(article, candidate)
-        print(f"{i}. {score:.3f} | {candidate.title}")
+        source_name = getattr(candidate.source, "name", "Unknown") if hasattr(candidate, "source") and candidate.source else "Unknown"
+        url = getattr(candidate, "url", "#")
+        print(f"{i}. {score:.3f} | {candidate.title} | {url}")
+        print(f"   Source: {source_name}")
         print(f"   {explanation}")
         print()
 

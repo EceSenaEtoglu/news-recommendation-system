@@ -172,30 +172,89 @@ def create_recommendation_grid(recommendations, articles_dict, cols_per_row, rec
         cols = st.columns(cols_per_row)
         for col, rec in zip(cols, row_recs):
             with col:
-                # Use robust matching - try exact title first, then fuzzy matching
-                article = articles_dict.get(rec["title"].strip().lower())
-                if not article:
-                    # Try fuzzy matching if exact match fails
-                    for title, art in articles_dict.items():
-                        if rec["title"].strip().lower() in title or title in rec["title"].strip().lower():
-                            article = art
-                            break
+                # Try to find the article for additional metadata, but use recommendation data as primary
+                rec_title = rec["title"].strip().lower()
+                article = articles_dict.get(rec_title)
                 
-                if article:
-                    render_recommendation_card(rec, article, i + row_recs.index(rec) + 1, recommendation_type)
-                else:
-                    # Fallback: create a minimal article object from recommendation data
+                # If we have a URL in the recommendation, use it directly
+                if rec.get("url") and rec["url"] != "#":
+                    # Create article object from recommendation data
                     from collections import namedtuple
                     Source = namedtuple("Source", ["name"])
-                    Article = namedtuple("Article", ["id", "title", "url", "description", "source"])
-                    fallback_article = Article(
-                        id=rec.get("id", "unknown"),
-                        title=rec["title"],
-                        url=rec.get("url", "#"),
-                        description=rec.get("description", ""),
-                        source=Source(name=rec.get("source", "Unknown"))
-                    )
-                    render_recommendation_card(rec, fallback_article, i + row_recs.index(rec) + 1, recommendation_type)
+                    Article = namedtuple("Article", ["id", "title", "url", "description", "source", "published_at", "topics"])
+                    
+                    # Use source from recommendation data
+                    source_name = rec.get("source", "Unknown")
+                    
+                    # Try to get additional metadata from matched article
+                    if article:
+                        recommendation_article = Article(
+                            id=article.id,
+                            title=rec["title"],
+                            url=rec["url"],
+                            description=getattr(article, "description", ""),
+                            source=Source(name=source_name),
+                            published_at=getattr(article, "published_at", None),
+                            topics=getattr(article, "topics", [])
+                        )
+                    else:
+                        # Fallback with minimal data
+                        recommendation_article = Article(
+                            id=rec.get("id", "unknown"),
+                            title=rec["title"],
+                            url=rec["url"],
+                            description=rec.get("description", ""),
+                            source=Source(name=source_name),
+                            published_at=rec.get("published_at", None),
+                            topics=rec.get("topics", [])
+                        )
+                    
+                    render_recommendation_card(rec, recommendation_article, i + row_recs.index(rec) + 1, recommendation_type)
+                else:
+                    # Fallback to old matching logic if no URL provided
+                    if not article:
+                        # Try fuzzy matching strategies
+                        best_match = None
+                        best_score = 0
+                        
+                        for title, art in articles_dict.items():
+                            # Strategy 1: One title contains the other
+                            if rec_title in title or title in rec_title:
+                                article = art
+                                break
+                            
+                            # Strategy 2: Word overlap scoring
+                            rec_words = set(rec_title.split())
+                            title_words = set(title.split())
+                            if rec_words and title_words:
+                                overlap = len(rec_words.intersection(title_words))
+                                total_words = len(rec_words.union(title_words))
+                                score = overlap / total_words if total_words > 0 else 0
+                                
+                                if score > best_score and score > 0.3:  # At least 30% word overlap
+                                    best_match = art
+                                    best_score = score
+                        
+                        if not article and best_match:
+                            article = best_match
+                    
+                    if article:
+                        render_recommendation_card(rec, article, i + row_recs.index(rec) + 1, recommendation_type)
+                    else:
+                        # Fallback: create a minimal article object from recommendation data
+                        from collections import namedtuple
+                        Source = namedtuple("Source", ["name"])
+                        Article = namedtuple("Article", ["id", "title", "url", "description", "source", "published_at", "topics"])
+                        fallback_article = Article(
+                            id=rec.get("id", "unknown"),
+                            title=rec["title"],
+                            url=rec.get("url", "#"),
+                            description=rec.get("description", ""),
+                            source=Source(name=rec.get("source", "Unknown")),
+                            published_at=rec.get("published_at", None),
+                            topics=rec.get("topics", [])
+                        )
+                        render_recommendation_card(rec, fallback_article, i + row_recs.index(rec) + 1, recommendation_type)
 
 
 def render_recommendation_card(rec: dict, article: Article, idx: int, recommendation_type: str = "Basic"):
@@ -478,9 +537,20 @@ def main():
                     recommendations = []
                     if result.returncode == 0 and result.stdout:
                         lines = result.stdout.strip().split("\n")
+                        current_rec = None
+                        
                         for line in lines:
+                            line = line.strip()
+                            if not line:
+                                continue
+                                
                             # Look for lines that start with a number followed by a dot (e.g., "1. 0.816 | ...")
-                            if line.strip() and line.strip()[0].isdigit() and "." in line and "|" in line:
+                            if line[0].isdigit() and "." in line and "|" in line:
+                                # Save previous recommendation if exists
+                                if current_rec:
+                                    recommendations.append(current_rec)
+                                
+                                # Parse new recommendation
                                 parts = line.split("|")
                                 if len(parts) >= 2:
                                     # Extract score from the first part (e.g., "1. 0.816" -> "0.816")
@@ -489,12 +559,31 @@ def main():
                                         score_str = score_part.split(". ", 1)[1].strip()
                                     else:
                                         score_str = score_part
-                                    title = parts[1].strip()
+                                    
+                                    # Parse title and URL (new format: "title | url")
+                                    if len(parts) >= 3:
+                                        # New format: "1. 0.816 | title | url"
+                                        title = parts[1].strip()
+                                        url = parts[2].strip()
+                                    else:
+                                        # Old format: "1. 0.816 | title"
+                                        title = parts[1].strip()
+                                        url = "#"
+                                    
                                     try:
                                         score = float(score_str)
-                                        recommendations.append({"title": title, "score": score})
+                                        current_rec = {"title": title, "score": score, "url": url, "source": "Unknown"}
                                     except:
-                                        recommendations.append({"title": title, "score": 0.0})
+                                        current_rec = {"title": title, "score": 0.0, "url": url, "source": "Unknown"}
+                            
+                            # Look for source information (e.g., "   Source: www.cnbc.com")
+                            elif line.startswith("   Source: ") and current_rec:
+                                source = line.replace("   Source: ", "").strip()
+                                current_rec["source"] = source
+                        
+                        # Add the last recommendation
+                        if current_rec:
+                            recommendations.append(current_rec)
                     
                     ss[cache_key] = recommendations
             
