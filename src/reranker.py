@@ -12,24 +12,7 @@ from sklearn.model_selection import train_test_split
 from .data_models import Article
 from .storage import ArticleDB
 from .embeddings import EmbeddingSystem
-
-
-@dataclass
-class RerankFeatureConfig:
-    recency_half_life_hours: float = 48.0
-    content_length_norm: int = 2000
-
-
-@dataclass
-class NeuralRerankerConfig:
-    """Configuration for neural reranker (for future use)"""
-    hidden_dim: int = 128
-    num_layers: int = 2
-    dropout: float = 0.2
-    learning_rate: float = 0.001
-    batch_size: int = 32
-    num_epochs: int = 100
-    early_stopping_patience: int = 10
+from .config import RerankFeatureConfig, NeuralRerankerConfig
 
 
 class RerankFeatureExtractor:

@@ -6,16 +6,7 @@ from sentence_transformers import SentenceTransformer
 from typing import List, Tuple, Optional, Dict, Union
 from dataclasses import dataclass
 from .data_models import Article
-
-
-@dataclass
-class EmbeddingModelConfig:
-    """Configuration for embedding models"""
-    name: str
-    model_path: str
-    dimension: int
-    description: str
-    is_news_specific: bool = False
+from .config import EmbeddingModelConfig
 
 class EmbeddingSystem:
     """Handles embeddings and semantic search using FAISS with multi-model support"""
