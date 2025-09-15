@@ -1,7 +1,6 @@
 # 🚀 AI News MVP
 
-An **MVP** for hands-on experience with modern AI technologies including **FAISS**, **semantic retrieval**, **neural reranking**, **multi-model fusion**, and **transformer-based summarization**. This project demonstrates practical implementation of advanced recommendation systems and RAG (Retrieval-Augmented Generation) architectures.
-More features and improvements coming soon!
+I binge coded this **MVP** in couple of days for hands-on experience with modern AI technologies including **FAISS**, **semantic retrieval**, **neural reranking**, **multi-model fusion**, and **transformer-based summarization**. This project demonstrates practical implementation of advanced recommendation systems and RAG architectures. More features and improvements coming soon!
 
 ## 🎯 Quick Start
 
