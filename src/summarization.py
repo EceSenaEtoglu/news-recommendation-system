@@ -21,19 +21,22 @@ class NewsSummarizer:
     def _load_model(self):
         """Load the summarization model"""
         try:
-            # Use a smaller, faster model for better performance
+            # Use BART-large-CNN with optimized settings for longer summaries
             self.summarizer = pipeline(
                 "summarization",
                 model="facebook/bart-large-cnn",
                 device=0 if torch.cuda.is_available() else -1,
-                max_length=150,
-                min_length=30,
-                do_sample=False
+                max_length=300,        # Longer summaries for news
+                min_length=150,        # Higher minimum to force longer summaries
+                do_sample=False,
+                length_penalty=3.0,    # Much stronger encouragement for longer summaries
+                repetition_penalty=1.5, # Reduce repetition
+                num_beams=4           # Better quality generation
             )
-            print(f"✅ Loaded summarization model: {self.model_name}")
+            print(f" Loaded summarization model: {self.model_name}")
         except Exception as e:
-            print(f"❌ Failed to load summarization model: {e}")
-            print("🔄 Falling back to extractive summarization")
+            print(f" Failed to load summarization model: {e}")
+            print(" Falling back to extractive summarization")
             self.summarizer = None
     
     def summarize(self, text: str, max_length: int = 150, min_length: int = 30) -> str:
@@ -133,7 +136,7 @@ def get_summarizer() -> NewsSummarizer:
         _summarizer_instance = NewsSummarizer()
     return _summarizer_instance
 
-def summarize_article(content: str, title: str = "", max_length: int = 150) -> str:
+def summarize_article(content: str, title: str = "", max_length: int = 300) -> str:
     """
     Convenience function to summarize an article.
     

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-RAGify-News AI Demo
-==================
+AI News Demo
+============
 
 A comprehensive demonstration of the AI-powered news recommendation system.
 This script showcases all the enhanced AI capabilities including neural reranking,
@@ -126,7 +126,7 @@ def _load_fixture_articles(provider: FixtureProvider, featured_limit: int = 20, 
 
 def run_demo():
     """Run the comprehensive AI demo"""
-    print("RAGify-News AI Demo")
+    print("AI News Demo")
     print("=" * 60)
     print()
     
@@ -413,7 +413,7 @@ def cmd_model_info():
 
 def main():
     """Main CLI interface"""
-    parser = argparse.ArgumentParser(description="RAGify-News AI Demo")
+    parser = argparse.ArgumentParser(description="AI News Demo")
     parser.add_argument("--setup", action="store_true", help="Setup data (import fixtures and build index)")
     parser.add_argument("--fetch-and-setup", action="store_true", help="Fetch new articles and setup data")
     parser.add_argument("--demo", action="store_true", help="Run comprehensive demo")

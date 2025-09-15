@@ -24,7 +24,7 @@ def simple_summarize(article: Article, max_sentences: int = 3) -> str:
         summary = summarize_article(
             content=article.content,
             title=article.title,
-            max_length=150
+            max_length=300
         )
         return summary
     except Exception as e:
@@ -394,7 +394,7 @@ def render_saved_article_card(article: Article, idx: int):
 def main():
     """Main Streamlit application"""
     st.set_page_config(
-        page_title="RAGify-News AI Dashboard",
+        page_title="AI News Dashboard",
         page_icon="🤖",
         layout="wide",
         initial_sidebar_state="expanded"
@@ -441,7 +441,7 @@ def main():
         
     # Sidebar
     with st.sidebar:
-        st.title("🤖 RAGify-News")
+        st.title("🤖 AI News")
         
         # System Status
         fixtures_folder = "src/providers/news_fixtures"
