@@ -133,11 +133,6 @@ python scripts/demo.py --fetch
 - **spaCy model**: `python -m spacy download en_core_web_sm`
 - **Transformers**: `pip install transformers torch`
 
-### **Performance Optimization**
-- Use smaller models for faster loading
-- Reduce recommendation count for better performance
-- Enable diversity for more varied results
-
 ### **Common Issues**
 - **Memory**: Close other applications for large models
 - **Network**: Ensure internet connection for model downloads
