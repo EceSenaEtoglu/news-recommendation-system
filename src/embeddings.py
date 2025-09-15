@@ -49,12 +49,12 @@ class EmbeddingSystem:
                 description="News-specific similarity model",
                 is_news_specific=True
             ),
-            "paraphrase-multilingual": EmbeddingModelConfig(
-                name="paraphrase-multilingual",
-                model_path="sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
-                dimension=384,
-                description="Multilingual model"
-            ),
+            # "paraphrase-multilingual": EmbeddingModelConfig(
+            #     name="paraphrase-multilingual",
+            #     model_path="sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+            #     dimension=384,
+            #     description="Multilingual model (for future use - currently English only)"
+            # ),
             "msmarco-distilbert": EmbeddingModelConfig(
                 name="msmarco-distilbert",
                 model_path="sentence-transformers/msmarco-distilbert-base-v4",
@@ -262,7 +262,6 @@ class EmbeddingSystem:
         for score, idx in zip(scores[0], indices[0]):
             if idx != -1 and score > score_threshold:  # Valid match
                 
-                # what is id to metadata?
                 metadata = self.id_to_metadata.get(idx, {}) 
                 article_id = metadata.get("article_id")
                 if article_id:
