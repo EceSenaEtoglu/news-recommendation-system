@@ -402,7 +402,7 @@ def main():
     ss.setdefault("selected_article_id", None)
     ss.setdefault("selected_article_title", None)
     ss.setdefault("selected_article_url", None)
-    ss.setdefault("recommendation_type", "Basic")
+    ss.setdefault("recommendation_type", "Multi-Model")
     ss.setdefault("num_recommendations", 5)
     ss.setdefault("use_diversity", True)
     ss.setdefault("articles_page", 1)
@@ -460,7 +460,7 @@ def main():
         ss.candidate_count = st.slider("Candidate Pool", 50, 200, ss.candidate_count)
 
         if st.button("🔄 Refresh News", type="primary", use_container_width=True):
-            with st.spinner("Fetching latest news and building index..."):
+            with st.spinner("Fetching latest news and building index... This can take a short while."):
                 try:
                     success = fetch_and_setup_data(featured_count=ss.featured_count, pool_count=ss.candidate_count)
                     if success: st.success("✅ News refreshed!"); st.rerun()
