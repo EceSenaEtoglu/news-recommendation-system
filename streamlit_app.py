@@ -338,8 +338,6 @@ def main():
 
     featured, candidates, all_articles = load_fixtures(fixtures_folder, ss.featured_count, ss.candidate_count)
     
-    # Debug: Show what was loaded
-    st.write(f"Debug: Loaded {len(featured)} featured articles, {len(candidates)} candidates, {len(all_articles)} total articles")
 
     st.title("🤖 AI-Powered News Dashboard")
     st.markdown("<p style='text-align: center; color: #6b7280; font-size: 18px;'>Advanced recommendations with neural reranking and multi-model fusion</p>", unsafe_allow_html=True)
@@ -430,9 +428,6 @@ def main():
         if not ss.news_basket:
             st.info("🧺 Your basket is empty. Save articles from other tabs to see them here.")
         else:
-            # Debug: Show what's in the basket and all_articles
-            st.write(f"Debug: Basket has {len(ss.news_basket)} items")
-            st.write(f"Debug: All articles has {len(all_articles)} items")
             
             basket_articles = []
             for item in ss.news_basket:
@@ -442,7 +437,6 @@ def main():
                 else:
                     st.warning(f"Article not found in loaded data: {item['title']} (ID: {item['id']})")
             
-            st.write(f"Debug: Found {len(basket_articles)} articles in basket")
             
             if basket_articles:
                 items_per_page = grid_columns * 4
