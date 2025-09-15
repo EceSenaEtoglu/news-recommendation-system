@@ -109,8 +109,6 @@ python scripts/demo.py --multi-model <article_id> --models all-MiniLM-L6-v2 news
 - 🔮 **User Profiles**: Personalized recommendations
 - 🔮 **Real-time Learning**: Continuous model improvement
 - 🔮 **Advanced Analytics**: Recommendation insights
-- 🔮 **API Endpoints**: RESTful service integration
-- 🔮 **Mobile App**: Cross-platform experience
 
 ## 🐛 Troubleshooting
 
