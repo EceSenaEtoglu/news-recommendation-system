@@ -4,7 +4,7 @@ I binge coded this **MVP** in couple of days for hands-on experience with modern
 
 ## 🎯 Quick Start
 
-### **Option 1: Web UI Demo (Recommended)**
+### Web UI Demo**
 
 The easiest way to explore the system:
 
@@ -26,22 +26,6 @@ streamlit run streamlit_app.py
 - ⚙️ **Real-time Configuration** of AI parameters
 - 🔄 **Live News Data Refresh** from RSS feeds
 
-### **Option 2: Command Line Interface**
-
-For developers and advanced users:
-
-```bash
-# Install dependencies (if not already done)
-pip install -r requirements.txt
-
-# Run comprehensive demo
-python scripts/demo.py --demo
-
-# Get recommendations for specific articles
-python scripts/demo.py --recommend <article_id>
-python scripts/demo.py --enhanced <article_id>
-python scripts/demo.py --multi-model <article_id>
-```
 
 ## 🧠 Technologies Demonstrated
 
@@ -80,30 +64,6 @@ python scripts/demo.py --multi-model <article_id>
 - **One-Click Summarization**: AI-powered article summaries
 - **Live Data Refresh**: Fetch latest news from RSS feeds
 
-## 🔧 Command Line Features
-
-### **Available Commands**
-| Command | Description |
-|---------|-------------|
-| `--setup` | Setup data (import fixtures and build index) |
-| `--fetch` | Fetch latest news and rebuild index |
-| `--demo` | Run comprehensive AI demo |
-| `--recommend <id>` | Basic semantic recommendations |
-| `--enhanced <id>` | Enhanced recommendations with reranking |
-| `--multi-model <id>` | Multi-model fusion recommendations |
-| `--list-models` | List available embedding models |
-
-### **Advanced Usage Examples**
-```bash
-# Get 5 recommendations with diversity
-python scripts/demo.py --recommend <article_id> --k 5 --diversity
-
-# Use specific embedding model
-python scripts/demo.py --enhanced <article_id> --model news-similarity
-
-# Multi-model fusion with custom models
-python scripts/demo.py --multi-model <article_id> --models all-MiniLM-L6-v2 news-similarity
-```
 
 ### **Coming Soon**
 - 🔮 **User Profiles**: Personalized recommendations
