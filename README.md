@@ -9,14 +9,18 @@ I binge coded this **MVP** in couple of days for hands-on experience with modern
 The easiest way to explore the system:
 
 ```bash
-# 0. Install dependencies (one-time)
-pip install -r requirements.txt
+# 0) Create the conda env from environment.yml (one-time)
+conda env create -f environment.yml      
 
-# 1. Setup data (one-time)
+# 1) Activate the env
+conda activate newsenv                 
+
+# 2) Setup data (one-time)
 python scripts/demo.py --setup
 
-# 2. Launch interactive web interface
+# 3) Launch the app
 streamlit run streamlit_app.py
+
 ```
 
 **Web Interface Features:**
