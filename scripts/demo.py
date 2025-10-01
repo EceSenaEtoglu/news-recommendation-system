@@ -399,18 +399,18 @@ def cmd_list_models():
     print()
 
 
-def cmd_model_info():
-    """Show current model information"""
-    emb = EmbeddingSystem()
-    stats = emb.get_stats()
-    
-    print("Current Model Information:")
-    print("=" * 40)
-    print(f"Primary Model: {stats['model']}")
-    print(f"Index Vectors: {stats['total_vectors']}")
-    print(f"Dimension: {stats['dimension']}")
-    print(f"Available Models: {len(stats['available_models'])}")
-    print()
+# def cmd_model_info():
+#     """Show current model information"""
+#     emb = EmbeddingSystem()
+#     stats = emb.get_stats()
+#     
+#     print("Current Model Information:")
+#     print("=" * 40)
+#     print(f"Primary Model: {stats['model']}")
+#     print(f"Index Vectors: {stats['total_vectors']}")
+#     print(f"Dimension: {stats['dimension']}")
+#     print(f"Available Models: {len(stats['available_models'])}")
+#     print()
 
 
 # def main():

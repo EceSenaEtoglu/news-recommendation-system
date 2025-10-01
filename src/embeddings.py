@@ -56,12 +56,11 @@ class EmbeddingSystem:
         
         # Initialize primary model
         self.primary_model_name = model_name
-        self.models: Dict[str, SentenceTransformer] = {}
         self.current_model = self._load_model(model_name)
         
         # FAISS index
         self.index = None
-        self.id_to_metadata = {}
+        self.faiss_id_to_metadata = {}
         self.article_id_to_faiss_id = {}
         
         # Load existing index
@@ -69,22 +68,13 @@ class EmbeddingSystem:
     
     def _load_model(self, model_name: str) -> SentenceTransformer:
         """Load a specific embedding model"""
-        if model_name in self.models:
-            return self.models[model_name]
+        if model_name not in self.available_models:
+            raise ValueError(f"Model '{model_name}' is not supported")
         
         config = self.available_models[model_name]
         print(f"Loading embedding model: {config.description}")
         
-        try:
-            model = SentenceTransformer(config.model_path)
-            self.models[model_name] = model
-            return model
-        except Exception as e:
-            print(f"Failed to load model {model_name}: {e}")
-            # Fallback to default model
-            if model_name != "all-MiniLM-L6-v2":
-                return self._load_model("all-MiniLM-L6-v2")
-            raise
+        return SentenceTransformer(config.model_path)
     
     def switch_model(self, model_name: str) -> bool:
         """Switch to a different embedding model"""
@@ -114,76 +104,26 @@ class EmbeddingSystem:
         """Encode multiple texts efficiently"""
         model = self.current_model if model_name is None else self._load_model(model_name)
         return model.encode(texts, convert_to_numpy=True, show_progress_bar=True)
-    
-    def multi_model_search(self, 
-                          query: str, 
-                          models: List[str], 
-                          k: int = 10,
-                          fusion_method: str = "weighted_average") -> List[Tuple[str, float]]:
-        """
-        Perform search using multiple models and fuse results.
-        
-        Args:
-            query: Search query
-            models: List of model names to use
-            k: Number of results per model
-            fusion_method: "weighted_average", "rank_fusion", or "max_score"
-        """
-        all_results = {}
-        
-        for model_name in models:
-            if model_name not in self.available_models:
-                continue
-            
-            results = self.semantic_search(query, k=k, model_name=model_name)
-            
-            if fusion_method == "weighted_average":
-                # Weight news-specific models higher
-                weight = 1.5 if self.available_models[model_name].is_news_specific else 1.0
-                for article_id, score in results:
-                    if article_id in all_results:
-                        all_results[article_id] = (all_results[article_id] + score * weight) / 2
-                    else:
-                        all_results[article_id] = score * weight
-            
-            elif fusion_method == "rank_fusion":
-                # Reciprocal rank fusion
-                for rank, (article_id, score) in enumerate(results):
-                    rrf_score = 1.0 / (rank + 1)
-                    if article_id in all_results:
-                        all_results[article_id] += rrf_score
-                    else:
-                        all_results[article_id] = rrf_score
-            
-            elif fusion_method == "max_score":
-                # Take maximum score across models
-                for article_id, score in results:
-                    if article_id in all_results:
-                        all_results[article_id] = max(all_results[article_id], score)
-                    else:
-                        all_results[article_id] = score
-        
-        # Sort by score and return top k
-        sorted_results = sorted(all_results.items(), key=lambda x: x[1], reverse=True)
-        return sorted_results[:k]
-    
-    # add articles to faiss index by constructing faiss id for each article
-    # construct self.id_to_metadata[faiss_id] for each faiss_id created 
-    def add_articles(self, articles: List[Article]) -> int:
-        """Add articles to the FAISS index, fill self.id_to_metadata
+
+
+    # add articles to faiss index by constructing faiss id for each article (self.index)
+    # construct self.faiss_id_to_metadata[]
+    # construct self.article_id_to_faiss_id[] enables O(1) duplicate checking during indexing
+    def index_articles(self, articles: List[Article]) -> int:
+        """Add articles to the FAISS index, fill self.faiss_id_to_metadata
         return num of added articles"""
         if not articles:
             return 0
                 
-        # inside add_articles, before encoding:
-        unique_articles = []
+        # only add articles that are not already indexed
+        non_indexed_articles = []
         for a in articles:
             if a.id in self.article_id_to_faiss_id:
                 continue  # already indexed; skip or handle updates here
-            unique_articles.append(a)
-        articles = unique_articles
+            non_indexed_articles.append(a)
+        articles = non_indexed_articles
         
-        print(f" Encoding {len(unique_articles)} articles...")
+        print(f" Encoding {len(non_indexed_articles)} articles...")
 
         # Prepare texts for embedding (title + description)
         texts = []
@@ -214,7 +154,7 @@ class EmbeddingSystem:
         # Update metadata mapping for the new articles
         for i, article in enumerate(valid_articles):
             faiss_id = start_id + i
-            self.id_to_metadata[faiss_id] = {
+            self.faiss_id_to_metadata[faiss_id] = {
                 "article_id": article.id,
                 "title": article.title,
                 "source": article.source.name,
@@ -253,12 +193,67 @@ class EmbeddingSystem:
         for score, idx in zip(scores[0], indices[0]):
             if idx != -1 and score > score_threshold:  # Valid match
                 
-                metadata = self.id_to_metadata.get(idx, {}) 
+                metadata = self.faiss_id_to_metadata.get(idx, {}) 
                 article_id = metadata.get("article_id")
                 if article_id:
                     results.append((article_id, float(score)))
         
         return results
+    
+    def multi_model_search(self, 
+                          query: str, 
+                          models: List[str], 
+                          k: int = 10,
+                          fusion_method: str = "weighted_average") -> List[Tuple[str, float]]:
+        """
+        Perform search using multiple models and fuse results.
+        
+        Args:
+            query: Search query
+            models: List of model names to use
+            k: Number of results per model
+            fusion_method: "weighted_average", "rank_fusion", or "max_score"
+        """
+        all_results = {}
+        
+        for model_name in models:
+            if model_name not in self.available_models:
+                continue
+            
+            results = self.semantic_search(query, k=k, model_name=model_name)
+            
+            # For a given article, take weighted average of scores across models
+            if fusion_method == "weighted_average":
+                # Weight news-specific models higher
+                weight = 1.5 if self.available_models[model_name].is_news_specific else 1.0
+                for article_id, score in results:
+                    if article_id in all_results:
+                        all_results[article_id] = (all_results[article_id] + score * weight) / 2
+                    else:
+                        all_results[article_id] = score * weight
+            
+            elif fusion_method == "rank_fusion":
+                # Reciprocal rank fusion
+                for rank, (article_id, score) in enumerate(results):
+                    # convert the 0 based rank to a 1 based rank for the formula
+                    rrf_score = 1.0 / (rank + 1)
+                    if article_id in all_results:
+                        all_results[article_id] += rrf_score
+                    else:
+                        all_results[article_id] = rrf_score
+            
+            # For a given article, take the maximum score across models
+            elif fusion_method == "max_score":
+                for article_id, score in results:
+                    if article_id in all_results:
+                        all_results[article_id] = max(all_results[article_id], score)
+                    else:
+                        all_results[article_id] = score
+        
+        # Sort by score and return top k
+        sorted_results = sorted(all_results.items(), key=lambda x: x[1], reverse=True)
+        return sorted_results[:k]
+    
     
     def save_index(self):
         """Save FAISS index and metadata to disk"""
@@ -272,7 +267,7 @@ class EmbeddingSystem:
         
         # Save metadata
         with open(self.metadata_path, 'wb') as f:
-            pickle.dump(self.id_to_metadata, f)
+            pickle.dump(self.faiss_id_to_metadata, f)
         
         print(f" Saved FAISS index with {self.index.ntotal} vectors")
     
@@ -285,35 +280,25 @@ class EmbeddingSystem:
             
             if os.path.exists(self.metadata_path):
                 with open(self.metadata_path, 'rb') as f:
-                    self.id_to_metadata = pickle.load(f)
-                print(f" Loaded metadata for {len(self.id_to_metadata)} articles")
+                    self.faiss_id_to_metadata = pickle.load(f)
+                print(f" Loaded metadata for {len(self.faiss_id_to_metadata)} articles")
 
                 # REBUILD REVERSE MAP HERE
                 self.article_id_to_faiss_id = {
                     meta["article_id"]: faiss_id
-                    for faiss_id, meta in self.id_to_metadata.items()
+                    for faiss_id, meta in self.faiss_id_to_metadata.items()
                     if "article_id" in meta
                 }
                 # Optional sanity check:
-                if len(self.article_id_to_faiss_id) != len(self.id_to_metadata):
+                if len(self.article_id_to_faiss_id) != len(self.faiss_id_to_metadata):
                     print(" Warning: reverse map size does not match metadata size")
                 
         except Exception as e:
             print(f" Could not load existing index: {e}")
             self.index = faiss.IndexFlatIP(self.current_model.get_sentence_embedding_dimension())
-            self.id_to_metadata = {}
+            self.faiss_id_to_metadata = {}
             self.article_id_to_faiss_id = {}
 
-    
-    def get_stats(self) -> dict:
-        """Get embedding system statistics"""
-        return {
-            "total_vectors": self.index.ntotal,
-            "embedding_dimension": self.current_model.get_sentence_embedding_dimension(),
-            "model_name": self.model.model_name if hasattr(self.model, 'model_name') else "unknown",
-            "index_type": "IndexFlatIP",
-            "metadata_entries": len(self.id_to_metadata)
-        }
     
     def rebuild_index_from_db(self, db):
         """Rebuild the entire index from database articles"""
@@ -321,7 +306,7 @@ class EmbeddingSystem:
         
         # Clear existing index
         self.index = faiss.IndexFlatIP(self.current_model.get_sentence_embedding_dimension())
-        self.id_to_metadata = {}
+        self.faiss_id_to_metadata = {}
         self.article_id_to_faiss_id = {}
         
         # Get all articles from database
@@ -330,7 +315,7 @@ class EmbeddingSystem:
         
         if articles:
             # Add articles to index
-            added = self.add_articles(articles)
+            added = self.index_articles(articles)
             
             # Save updated index
             self.save_index()
@@ -372,7 +357,7 @@ if __name__ == "__main__":
             if faiss_id is None:
                 print(f"   {score:.3f} - (missing metadata for {article_id})")
                 continue
-            meta = embeddings.id_to_metadata.get(faiss_id, {})
+            meta = embeddings.faiss_id_to_metadata.get(faiss_id, {})
             title = (meta.get("title") or "?")[:60]
             print(f"   {score:.3f} - {title}...")
 
