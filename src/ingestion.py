@@ -22,19 +22,19 @@ def extract_entities(article: Article) -> list[tuple[str, str, int]]:
         List of tuples: (entity_name, entity_type, mention_count)
     """
     text = f"{article.title}. {article.description or ''} { (article.content or '')[:1200] }"
-    ents = []
+    
+    # Use dictionary to merge duplicates during extraction
+    merged = {}
     
     doc = _NER(text)
     keep = {"PERSON","ORG","GPE","LOC","PRODUCT","EVENT","WORK_OF_ART"}
     for e in doc.ents:
         if e.label_ in keep:
-            ents.append((e.text.strip(), e.label_, 1))
+            name = e.text.strip()
+            etype = e.label_
+            key = (name, etype)
+            merged[key] = merged.get(key, 0) + 1
     
-    # merge dupes
-    merged = {}
-    for name, etype, c in ents:
-        key = (name, etype)
-        merged[key] = merged.get(key, 0) + c
     return [(n, t, c) for (n,t), c in merged.items()]
 
 
@@ -67,7 +67,7 @@ class NewsIngestionPipeline:
         for a in processed_articles:
             if a.entities:
                 named = [(n, "MISC", 1) for n in a.entities]  # or recompute types; MISC is fine for demo
-                self.db.upsert_article_entities(a.id, named)
+                self.db.update_entity_info(a.id, named)
 
         print(f" Saved {saved_count} articles to database")
         

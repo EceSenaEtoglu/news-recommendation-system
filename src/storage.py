@@ -287,7 +287,10 @@ class ArticleDB:
             conn.close()
             
     # graph helpers
-    def upsert_article_entities(self, article_id: str, named_entities: list[tuple[str,str,int]]) -> None:
+    def update_entity_info(self, article_id: str, named_entities: list[tuple[str,str,int]]) -> None:
+        """
+        Update entity information for an article, enabling entity-based recommendations.
+        """
         conn = sqlite3.connect(self.db_path)
         try:
             for name, etype, mentions in named_entities:

@@ -254,7 +254,7 @@ class FixtureProvider(ArticleProvider):
             author=author,
             content_type=ContentType.FACTUAL,
             topics=[category],  # map category → topics for free "topic" signal
-            entities=item.get("entities", []),  # Extract entities if present
+            entities=item.get("entities", []),  # Extract entities with types (name, type, count)
         )
     
     def get_metadata(self) -> Dict[str, Any]:

@@ -305,7 +305,7 @@ def main():
                     'content': content
                 })()
                 entity_tuples = extract_entities(temp_article)
-                entities = [name for name, _, _ in entity_tuples[:MAX_ENTITIES_PER_ARTICLE]]
+                entities = entity_tuples[:MAX_ENTITIES_PER_ARTICLE]  # Keep full tuples with types
             except Exception as e:
                 print(f"Entity extraction failed for {link}: {e}")
                 entities = []
@@ -324,7 +324,7 @@ def main():
                 "category": "general",
                 "pubDate": pub,
                 "creator": None,
-                "entities": entities  # Add extracted entities
+                "entities": entities  # Add extracted entities with types (name, type, count)
             }
         except Exception as ex:
             print("Extract failed:", link, ex)

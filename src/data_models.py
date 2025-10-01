@@ -54,7 +54,7 @@ class Article:
     
     # Computed fields
     embedding: Optional[List[float]] = None
-    entities: List[str] = field(default_factory=list)
+    entities: List[tuple[str, str, int]] = field(default_factory=list)  # (name, type, count)
     topics: List[str] = field(default_factory=list)
     created_at: datetime = field(default_factory=datetime.now)
     
