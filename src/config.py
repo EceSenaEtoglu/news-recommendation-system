@@ -5,12 +5,15 @@ Central configuration for all modules to avoid circular imports and scattered co
 from dataclasses import dataclass
 from typing import Optional
 
-# Learning rates for prefs updates
-ENTITY_LR: float = 1.0
-TOPIC_LR: float = 0.5
 
-# Freshness decay constant (days) for recency weighting
-FRESHNESS_DECAY_EXP_CONSTANT_DAYS: float = 4.0
+#TODO clean the codebase
+
+# Learning rates for prefs updates (currently unused)
+# ENTITY_LR: float = 1.0
+# TOPIC_LR: float = 0.5
+
+# Freshness decay constant (days) for recency weighting (currently unused)
+# FRESHNESS_DECAY_EXP_CONSTANT_DAYS: float = 4.0
 
 # Limits used when truncating extracted entities/topics per article
 MAX_ENTITIES_PER_ARTICLE: int = 10
@@ -21,10 +24,10 @@ MAX_TOPICS_PER_ARTICLE: int = 10
 class RAGConfig:
     """Configuration for different RAG strategies"""
 
-    # Database retrieval constants
-    entity_lr: float = ENTITY_LR
-    topic_lr: float = TOPIC_LR
-    freshness_decay_exp_constant: float = FRESHNESS_DECAY_EXP_CONSTANT_DAYS
+    # Database retrieval constants (currently unused)
+    # entity_lr: float = ENTITY_LR
+    # topic_lr: float = TOPIC_LR
+    # freshness_decay_exp_constant: float = FRESHNESS_DECAY_EXP_CONSTANT_DAYS
 
     # Hybrid weights
     bm25_weight: float = 0.4
@@ -35,7 +38,8 @@ class RAGConfig:
     freshness_weight: float = 0.3
 
     # Personalization weights and penalties
-    user_profile_weight: float = 0.2
+    # TODO are these necessary now? is it old code
+    # user_profile_weight: float = 0.2  # Currently unused
     personalization_weight: float = 0.10
     topic_string_weight: float = 0.05
     content_type_bonus: float = 0.10
@@ -74,10 +78,10 @@ class RAGConfig:
     max_entities_per_article: int = MAX_ENTITIES_PER_ARTICLE
     max_topics_per_article: int = MAX_TOPICS_PER_ARTICLE
 
-    # MMR diversification for search results
-    use_mmr_in_search: bool = False
-    mmr_lambda: float = 0.7
-    mmr_pool: int = 50
+    # MMR diversification for search results (moved to RecommendationConfig to avoid duplication)
+    # use_mmr_in_search: bool = False
+    # mmr_lambda: float = 0.7
+    # mmr_pool: int = 50
 
 
 @dataclass

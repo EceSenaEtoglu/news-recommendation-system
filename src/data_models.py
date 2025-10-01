@@ -11,15 +11,25 @@ class ContentType(Enum):
     FEATURE = "feature"
 
 
+class SourceCategory(Enum):
+    WORLD = "world"
+    BUSINESS = "business"
+    TECHNOLOGY = "technology"
+    SCIENCE = "science"
+    POLITICS = "politics"
+    GENERAL = "general"
+
+
 @dataclass
 class Source:
     """News source metadata"""
     id: str
     name: str
     url: str
-    category: str #what are the categories?
+    category: SourceCategory = SourceCategory.GENERAL
     country: str = "us"
     language: str = "en"
+    # Used in reranking
     credibility_score: float = 0.5  # 0-1 scale
 
 @dataclass
@@ -37,6 +47,7 @@ class Article:
     summary: Optional[str] = None
     
     # Article level labels
+    # used in retrieval system
     content_type: ContentType = ContentType.FACTUAL
     urgency_score: float = 0.5  # 0=evergreen, 1=breaking news
     
@@ -63,6 +74,7 @@ class Article:
 
             
     # TODO, should be swiched with NER or classification
+    # sets the content type and urgency score based on simple rules
     def _detect_content_bias(self):
         """Smart bias detection based on article content and metadata"""
         text = f"{self.title} {self.description}".lower()
@@ -104,6 +116,9 @@ class UserProfile:
     preferred_content_types: List[ContentType] = field(default_factory=list)
     created_at: datetime = field(default_factory=datetime.now)
 
+
+# RAG components
+#-------------------------
 @dataclass
 # TODO how to init the query type
 # Query type refers to different angles or aspects of coverage for the same underlying news event
@@ -127,12 +142,12 @@ class SearchResult:
     final_score: float = 0.0
     explanation: Optional[str] = None  # Explain Why this search was recommended
 
-# Optional: Entity for GraphRAG
-@dataclass
-class Entity:
-    """Named entity for graph construction"""
-    name: str
-    entity_type: str  # PERSON, ORG, GPE, etc.
-    mentions: int = 1
-    first_seen: datetime = field(default_factory=datetime.now)
-    articles: List[str] = field(default_factory=list)  # Article IDs
+# Entity for graphrag in the future, right now pure sqllite database tables are used
+#@dataclass
+#class Entity:
+#    """Named entity for graph construction"""
+#    name: str
+#    entity_type: str  # PERSON, ORG, GPE, etc.
+#    mentions: int = 1
+#    first_seen: datetime = field(default_factory=datetime.now)
+#    articles: List[str] = field(default_factory=list)  # Article IDs

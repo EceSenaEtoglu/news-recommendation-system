@@ -4,7 +4,7 @@ import json, glob, hashlib, random
 from typing import List, Optional, Dict, Any, Tuple
 from datetime import datetime, timezone
 from .base import ArticleProvider
-from ..data_models import Article, Source, ContentType
+from ..data_models import Article, Source, ContentType, SourceCategory
 
 try:
     from dateutil import parser as dateparser
@@ -213,7 +213,12 @@ class FixtureProvider(ArticleProvider):
         source_url = str(item.get("source_url") or "")
         lang = (item.get("language") or self.language or "en")[:5]
         country = _first(item.get("country"))
-        category = _first(item.get("category")) or "general"
+        category_str = _first(item.get("category")) or "general"
+        # Map string to enum
+        try:
+            category = SourceCategory(category_str.lower())
+        except ValueError:
+            category = SourceCategory.GENERAL
 
         src = Source(
             id=source_id,

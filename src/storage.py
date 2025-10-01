@@ -2,7 +2,7 @@ import sqlite3
 import json
 from datetime import datetime, timedelta
 from typing import List, Optional
-from .data_models import Article, Source, ContentType
+from .data_models import Article, Source, ContentType, SourceCategory
 
 # TODO for simplicity did not use ORM, use ORM in the future
 class ArticleDB:
@@ -233,7 +233,7 @@ class ArticleDB:
             id=row["source_id"],
             name=row["source_name"],
             url="",  # Not stored separately
-            category="general",
+            category=SourceCategory.GENERAL,
             credibility_score=row["source_credibility"] or 0.5
         )
         

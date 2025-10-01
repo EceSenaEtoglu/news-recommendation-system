@@ -6,7 +6,7 @@ import uuid
 
 # Assume src.data_models and other local modules are available in the path
 # If running this script standalone, you might need to adjust the Python path.
-from src.data_models import Article
+from src.data_models import Article, SourceCategory
 from src.providers.fixture import FixtureProvider
 from scripts.demo import fetch_and_setup_data
 
@@ -44,20 +44,19 @@ def get_category_badge(article: Article) -> str:
     if hasattr(article, 'topics') and article.topics:
         category = article.topics[0]  # First topic is usually the category
     elif hasattr(article, 'source') and hasattr(article.source, 'category'):
-        category = article.source.category
+        category = article.source.category.value if hasattr(article.source.category, 'value') else str(article.source.category)
     
     if not category:
         return ""
     
     # Create a styled category badge
     category_colors = {
-        'tech': '#3B82F6',         # Blue
-        'technology': '#3B82F6',    # Blue (same as tech)
-        'world': '#10B981',        # Green  
-        'business': '#F59E0B',     # Orange
-        'politics': '#EF4444',     # Red
-        'science': '#8B5CF6',      # Purple
-        'general': '#6B7280'       # Gray
+        SourceCategory.TECHNOLOGY.value: '#3B82F6',    # Blue
+        SourceCategory.WORLD.value: '#10B981',         # Green  
+        SourceCategory.BUSINESS.value: '#F59E0B',      # Orange
+        SourceCategory.POLITICS.value: '#EF4444',      # Red
+        SourceCategory.SCIENCE.value: '#8B5CF6',       # Purple
+        SourceCategory.GENERAL.value: '#6B7280'        # Gray
     }
     color = category_colors.get(category.lower(), '#E5E7EB')  # Light gray for unknown categories
     return f"<span style='background-color: {color}; color: white; padding: 2px 8px; border-radius: 12px; font-size: 12px; font-weight: 500;'>{category.upper()}</span>"

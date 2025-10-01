@@ -11,38 +11,12 @@ import feedparser
 from newspaper import Article as NPArticle
 from newspaper import Config as NPConfig
 
+
+# THIS SCRIPT CREATES featured.json and pool.json
+
 # Import entity extraction function
-import sys
-import os
-sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'src'))
-
-# Import spaCy directly since we only need the NER functionality
-import spacy
-_NER = spacy.load("en_core_web_sm")
-
-def extract_entities_simple(title: str, description: str, content: str) -> list[str]:
-    """
-    Simple entity extraction function for RSS ingestion.
-    Extracts entity names from article text using spaCy NER.
-    """
-    text = f"{title}. {description or ''} { (content or '')[:1200] }"
-    ents = []
-    
-    doc = _NER(text)
-    keep = {"PERSON","ORG","GPE","LOC","PRODUCT","EVENT","WORK_OF_ART"}
-    for e in doc.ents:
-        if e.label_ in keep:
-            ents.append(e.text.strip())
-    
-    # Remove duplicates while preserving order
-    seen = set()
-    unique_ents = []
-    for ent in ents:
-        if ent not in seen:
-            seen.add(ent)
-            unique_ents.append(ent)
-    
-    return unique_ents[:10]  # Limit to 10 entities
+from src.ingestion import extract_entities
+from src.config import MAX_ENTITIES_PER_ARTICLE
 
 
 DEFAULT_FEEDS = [
@@ -311,6 +285,7 @@ def main():
 
     # 3) Fetch full text in parallel
     items = []
+    # returns a structured
     def process(c):
         link = c["link"]
         try:
@@ -323,7 +298,14 @@ def main():
             
             # Extract entities using spaCy NER
             try:
-                entities = extract_entities_simple(title or "", c["desc"] or "", content)
+                # Create a temporary article-like object for entity extraction
+                temp_article = type('Article', (), {
+                    'title': title or "",
+                    'description': c["desc"] or "",
+                    'content': content
+                })()
+                entity_tuples = extract_entities(temp_article)
+                entities = [name for name, _, _ in entity_tuples[:MAX_ENTITIES_PER_ARTICLE]]
             except Exception as e:
                 print(f"Entity extraction failed for {link}: {e}")
                 entities = []
@@ -350,10 +332,15 @@ def main():
 
     print(f"Extracting full text from {len(unique_candidates)} articles...")
     with ThreadPoolExecutor(max_workers=args.workers) as ex:
+        # Submit all article processing tasks to the thread pool
+        # Each task fetches full text content from a URL and returns a structured dictionary
         futures = [ex.submit(process, c) for c in unique_candidates]
+        
+        # Collect results as they complete
+        # This allows processing multiple articles concurrently for better performance
         for fut in as_completed(futures):
             r = fut.result()
-            if r:
+            if r:  # Only append successful results (failed fetches return None)
                 items.append(r)
     
     print(f"Successfully extracted {len(items)} articles with sufficient content.")
@@ -369,6 +356,8 @@ def main():
 
     # TODO sort newest first 
 
+
+    # ------Following code block constructs the featured and pool articles------
 
     # By randomizing, select articles for featured and pool that has different categories
     rng = random.Random(args.seed)

@@ -3,7 +3,7 @@ import requests
 from datetime import datetime
 from typing import List, Optional
 from .base import ArticleProvider
-from ..data_models import Article, Source, ContentType
+from ..data_models import Article, Source, ContentType, SourceCategory
 from datetime import timezone
 
 # TODO, match it with the API calls!
@@ -90,6 +90,6 @@ class NewsAPIProvider(ArticleProvider):
             id="unknown",
             name=source_name,
             url="",
-            category="general",
+            category=SourceCategory.GENERAL,
             credibility_score=0.5
         )

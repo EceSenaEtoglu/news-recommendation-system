@@ -6,7 +6,7 @@ from typing import List, Optional, Dict, Any
 from datetime import datetime, timezone
 
 from .base import ArticleProvider
-from ..data_models import Article, Source, ContentType
+from ..data_models import Article, Source, ContentType, SourceCategory
 
 try:
     # robust parsing for various pubDate formats (ISO/RFC-2822)
@@ -134,7 +134,12 @@ class NewsDataIOProvider(ArticleProvider):
         source_url = str(item.get("source_url") or "")
         lang = (item.get("language") or self.language or "en")[:5]
         country = self._first(item.get("country"))
-        category = self._first(item.get("category")) or "general"  # ← will feed Article.topics
+        category_str = self._first(item.get("category")) or "general"
+        # Map string to enum
+        try:
+            category = SourceCategory(category_str.lower())
+        except ValueError:
+            category = SourceCategory.GENERAL
 
         src = Source(
             id=source_id,
