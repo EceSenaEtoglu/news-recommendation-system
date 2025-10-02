@@ -26,6 +26,8 @@ streamlit run streamlit_app.py
 **Web Interface Features:**
 <img width="945" height="426" alt="image" src="https://github.com/user-attachments/assets/5ea9118c-172b-4744-8473-9ca48b0e3de2" />
 <img width="945" height="422" alt="image" src="https://github.com/user-attachments/assets/69ffeb29-ba8f-4ca0-9982-4c07de3e26ab" />
+<img width="1919" height="838" alt="image" src="https://github.com/user-attachments/assets/b975ccb7-2ce6-4ddd-a233-0c6ae303b870" />
+
 
 - 🎯 **Interactive AI Recommendations** with multiple models
 - 📰 **Featured Articles** with semantic search
