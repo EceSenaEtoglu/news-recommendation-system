@@ -11,6 +11,9 @@ from .data_models import Article, UserProfile, SearchQuery, SearchResult, Conten
 from .config import RAGConfig
 from .storage import ArticleDB
 from .embeddings import EmbeddingSystem
+from .scoring import ScoringEngine
+from .content_analysis import ContentQualityAnalyzer
+from .reranker import RerankingEngine
 import spacy
 _NER = spacy.load("en_core_web_sm")
 
@@ -19,13 +22,9 @@ nltk.download('punkt')
 nltk.download('stopwords')
 import numpy as np
 
-
-
-import nltk
 from nltk.stem import PorterStemmer
 from nltk.tokenize import word_tokenize
 from gensim.parsing.preprocessing import STOPWORDS as GENSIM_STOPWORDS
-nltk.download("punkt")
 
 _STEM = PorterStemmer()
 
@@ -66,13 +65,17 @@ class MultiRAGRetriever:
         self.bm25_cache_path = "db/bm25_cache.pkl"
         self._build_bm25_index()
         
-        # Cross-encoder for reranking (lazy loading)
-        self.cross_encoder = None
-        if self.config.enable_cross_encoder:
-            self._init_cross_encoder()
+        # Initialize helper engines
+        self.scoring_engine = ScoringEngine(self.config)
+        self.content_analyzer = ContentQualityAnalyzer(self.config)
+        self.reranking_engine = RerankingEngine(self.config, embeddings)
         
         # Entity cache for Graph RAG
         self.entity_cache = {}
+    
+    # ============================================================================
+    # INITIALIZATION AND CACHING
+    # ============================================================================
     
     def _build_bm25_index(self):
         """Build BM25 index with caching support"""
@@ -140,16 +143,10 @@ class MultiRAGRetriever:
         except Exception as e:
             print(f" Failed to save BM25 cache: {e}")
     
-    def _init_cross_encoder(self):
-        """Initialize cross-encoder for reranking (lazy loading)"""
-        try:
-            from sentence_transformers import CrossEncoder
-            self.cross_encoder = CrossEncoder('cross-encoder/ms-marco-MiniLM-L-2-v2')
-            print(" Loaded cross-encoder for reranking")
 
-        except Exception as e:
-            print(f" Failed to load cross-encoder: {e}")
-            self.config.enable_cross_encoder = False
+    # ============================================================================
+    # MAIN SEARCH INTERFACE
+    # ============================================================================
 
     async def search(self, query: SearchQuery, user_profile: Optional[UserProfile] = None) -> List[SearchResult]:
         """Main search function with performance monitoring. Uses query routing mechanism"""
@@ -178,6 +175,10 @@ class MultiRAGRetriever:
             print(f" Search failed: {e}")
             return []
 
+    # ============================================================================
+    # RAG STRATEGIES
+    # ============================================================================
+
     async def _hybrid_rag(self, query: SearchQuery, user_profile: Optional[UserProfile]) -> List[SearchResult]:
         """Enhanced Hybrid RAG with cross-encoder and graph features"""
         
@@ -200,143 +201,110 @@ class MultiRAGRetriever:
         
         # Step 5: Cross-encoder reranking (Self-RAG)
         if self.config.enable_cross_encoder:
-            reranked_results = await self._cross_encoder_rerank(query.text, expanded_results[:20])
+            # Get articles for reranking
+            article_ids = [aid for aid, _ in expanded_results[:20]]
+            articles = self.db.get_articles_by_ids(article_ids)
+            articles_dict = {a.id: a for a in articles}
+            reranked_results = await self.reranking_engine.apply_cross_encoder_rerank(
+                query.text, expanded_results[:20], articles_dict)
         else:
             reranked_results = expanded_results
         
         # Step 6: Apply freshness weighting (Freshness-aware RAG)
-        fresh_results = await self._apply_freshness_boost(reranked_results)
+        article_ids = [aid for aid, _ in reranked_results]
+        articles = self.db.get_articles_by_ids(article_ids)
+        articles_dict = {a.id: a for a in articles}
+        fresh_results = self.scoring_engine.apply_freshness_boost(reranked_results, articles_dict)
         
         # Step 7: Apply user personalization (Memory RAG)  
         if user_profile:
-            personalized_results = await self._apply_user_preferences(fresh_results, user_profile)
+            user_id = getattr(user_profile, "user_id", None) or "default"
+            user_prefs = self.db.get_user_prefs(user_id)
+            personalized_results = self.scoring_engine.apply_user_preferences(
+                fresh_results, user_profile, articles_dict, user_prefs)
         else:
             personalized_results = fresh_results
         
         # Step 8: Optional MMR diversification, then ensure source diversity
-        diversified_results = self._apply_mmr_if_enabled(personalized_results, top_k=100)
-        balanced_results = await self._ensure_balance_and_diversity(diversified_results)
+        diversified_results = self.reranking_engine.apply_mmr_diversification(
+            personalized_results, top_k=100, articles_dict=articles_dict)
+        balanced_results = self.scoring_engine.ensure_balance_and_diversity(
+            diversified_results, articles_dict)
         
         # Step 9: Convert to SearchResult objects
         final_results = self._create_search_results(balanced_results, query, user_profile)
         
         return final_results[:query.limit]
 
-    def _apply_mmr_if_enabled(self, results: List[Tuple[str, float]], top_k: int) -> List[Tuple[str, float]]:
-        """Optionally apply MMR diversification on (article_id, score) list.
-        Returns (article_id, score) reranked and truncated to top_k if enabled.
-        """
-        if not results or not getattr(self.config, "use_mmr_in_search", False):
-            return results
-
-        pool_n = max(top_k, int(getattr(self.config, "mmr_pool", 50)))
-        lambda_ = float(getattr(self.config, "mmr_lambda", 0.7))
-
-        # Truncate pool and fetch article texts
-        pool = sorted(results, key=lambda x: x[1], reverse=True)[:pool_n]
-        pool_ids = [aid for aid, _ in pool]
-        articles = self.db.get_articles_by_ids(pool_ids)
-        id_to_article = {a.id: a for a in articles}
-
-        texts = []
-        kept = []
-        for i, aid in enumerate(pool_ids):
-            a = id_to_article.get(aid)
-            if not a:
-                continue
-            desc = a.description or ""
-            head = (a.content or "")[:500]
-            texts.append(f"{a.title} {desc} {head}")
-            kept.append(i)
-
-        if len(texts) < 2:
-            return pool
-
-        # Encode and normalize for cosine
-        X = self.embeddings.encode_texts(texts).astype('float32', copy=False)
-        X = X / (np.linalg.norm(X, axis=1, keepdims=True) + 1e-12)
-        S = X @ X.T
-        np.fill_diagonal(S, 1.0)
-
-        id_to_score = {aid: s for aid, s in pool}
-        selected_local: List[int] = []
-        remaining_local: List[int] = list(range(len(kept)))
-
-        while remaining_local and len(selected_local) < top_k:
-            best_j = None
-            best_val = -1e9
-            for j in remaining_local:
-                aid = pool_ids[kept[j]]
-                rel = float(id_to_score.get(aid, 0.0))
-                if not selected_local:
-                    val = rel
-                else:
-                    max_sim = max(S[j, t] for t in selected_local)
-                    val = lambda_ * rel - (1.0 - lambda_) * max_sim
-                if val > best_val:
-                    best_val = val
-                    best_j = j
-            selected_local.append(best_j)
-            remaining_local.remove(best_j)
-
-        # Build final sequence
-        final_pairs: List[Tuple[str, float]] = []
-        for j in selected_local:
-            aid = pool_ids[kept[j]]
-            final_pairs.append((aid, id_to_score.get(aid, 0.0)))
-
-        return final_pairs
-
-    async def _cross_encoder_rerank(self, query: str, results: List[Tuple[str, float]]) -> List[Tuple[str, float]]:
-        """Self-RAG: Rerank results using cross-encoder"""
-        if not self.cross_encoder or not results:
+    # ============================================================================
+    # SEARCH METHODS
+    # ============================================================================
+    
+    def _bm25_search(self, query: str, limit: int = 50) -> List[Tuple[str, float]]:
+        """BM25 keyword search"""
+        if not self.bm25_index:
+            return []
+        
+        q_tokens = _tokenize(query)
+        # returns one score for each article in the index
+        # scores is a list of length len(bm25_articles)
+        scores = self.bm25_index.get_scores(q_tokens)
+        
+        scored_indices = [(i, scores[i]) for i in range(len(scores))]
+        scored_indices.sort(key=lambda x: x[1], reverse=True)
+        
+        results = []
+        for idx, score in scored_indices[:limit]:
+            # if 0, no query term was found in the article
+            if score > 0:
+                article = self.bm25_articles[idx]
+                results.append((article.id, score))
+        
             return results
         
+    def _semantic_search(self, query: str, limit: int = 50,score_threshold = 0) -> List[Tuple[str, float]]:
+        """Semantic search using embeddings, raises expection if score_threshold is less than 0"""
         try:
-            # Get article objects for cross-encoder
-            article_ids = [aid for aid, _ in results]
-            articles = self.db.get_articles_by_ids(article_ids)
-            articles_dict = {a.id: a for a in articles}
-            
-            # Prepare query-article pairs for cross-encoder
-            pairs = []
-            valid_results = []
-            
-            for article_id, original_score in results:
-                article = articles_dict.get(article_id)
-                if article:
-                    # Combine title and description for reranking
-                    article_text = f"{article.title} {article.description or ''}"
-                    pairs.append([query, article_text])
-                    valid_results.append((article_id, original_score))
-            
-            if not pairs:
-                return results
-            
-            # Get cross-encoder scores
-            cross_scores = self.cross_encoder.predict(pairs)
-            
-            # Combine original scores with cross-encoder scores
-            reranked_results = []
-            for i, (article_id, original_score) in enumerate(valid_results):
-                cross_score = cross_scores[i]
-                
-                # Weighted combination
-                combined_score = (
-                    original_score * (1 - self.config.cross_encoder_weight) +
-                    cross_score * self.config.cross_encoder_weight
-                )
-                reranked_results.append((article_id, combined_score))
-            
-            # Sort by combined score
-            reranked_results.sort(key=lambda x: x[1], reverse=True)
-            
-            print(f" Cross-encoder reranked {len(reranked_results)} results")
-            return reranked_results
-            
+            if score_threshold < 0:
+                raise Exception("score threshold cant be less than 0")
+            return self.embeddings.semantic_search(query, k=limit,score_threshold=score_threshold)
         except Exception as e:
-            print(f" Cross-encoder reranking failed: {e}")
-            return results
+            print(f" Semantic search failed: {e}")
+            return []
+
+    def _combine_hybrid_scores(self, bm25_results: List[Tuple[str, float]], 
+                              semantic_results: List[Tuple[str, float]]) -> List[Tuple[str, float]]:
+        """Combine BM25 and semantic scores based on configured weighting combinations in self.config"""
+        
+        # normalize to 0-1 range
+        # assumes input scores are positive
+        def normalize_scores(results):
+            if not results:
+                return {}
+            max_score = max(score for _, score in results)
+            if max_score == 0:
+                return {}
+            return {article_id: score/max_score for article_id, score in results}
+        
+        bm25_norm = normalize_scores(bm25_results)
+        semantic_norm = normalize_scores(semantic_results)
+        
+        all_ids = set(bm25_norm.keys()) | set(semantic_norm.keys())
+        
+        combined = []
+        for article_id in all_ids:
+            bm25_score = bm25_norm.get(article_id, 0) * self.config.bm25_weight
+            semantic_score = semantic_norm.get(article_id, 0) * self.config.semantic_weight
+            
+            final_score = bm25_score + semantic_score
+            combined.append((article_id, final_score))
+        
+        return sorted(combined, key=lambda x: x[1], reverse=True)
+
+
+    # ============================================================================
+    # GRAPH RAG AND ENTITY EXPANSION
+    # ============================================================================
 
     async def _apply_graph_expansion(self, query: str, results: List[Tuple[str, float]]) -> List[Tuple[str, float]]:
         if not results:
@@ -383,6 +351,12 @@ class MultiRAGRetriever:
         return sorted(scored.items(), key=lambda x: x[1], reverse=True)
 
 
+    def _ner_entities_from_text(self, text: str) -> list[str]:
+        if not text: return []
+        doc = _NER(text)
+        keep = {"PERSON","ORG","GPE","LOC","PRODUCT","EVENT","WORK_OF_ART"}
+        return list({e.text.strip() for e in doc.ents if e.label_ in keep})
+
     async def _extract_entities_from_articles(self, article_ids: List[str]) -> List[str]:
         """Extract named entities from articles (simple implementation)"""
         try:
@@ -405,6 +379,7 @@ class MultiRAGRetriever:
             
             # Filter common words (basic stop words)
             # TODO the language can be parametrized
+            from nltk.corpus import stopwords
             stop_words = set(stopwords.words('english'))
             
             filtered_entities = [e for e in entities if e not in stop_words]
@@ -444,240 +419,12 @@ class MultiRAGRetriever:
             print(f" Entity-based article search failed: {e}")
             return {}
 
-    # Fix the remaining database query loops
-    async def _apply_freshness_boost(self, results: List[Tuple[str, float]]) -> List[Tuple[str, float]]:
-        """Apply time decay boost with batch database query"""
-        if not results:
-            return results
-        
-        boosted_results = []
-        article_ids = [aid for aid, _ in results]
-        articles = self.db.get_articles_by_ids(article_ids)
-        articles_dict = {a.id: a for a in articles}
-        
-        for article_id, score in results:
-            article = articles_dict.get(article_id)
-            if not article:
-                continue
-            
-            hours_old = (datetime.now(datetime.timezone.utc) - article.published_at).total_seconds() / 3600
-            freshness_factor = math.exp(-hours_old / self.config.freshness_decay_hours)
-            
-            boosted_score = score + (freshness_factor * self.config.freshness_weight)
-            boosted_results.append((article_id, boosted_score))
-        
-        return sorted(boosted_results, key=lambda x: x[1], reverse=True)
-
-    async def _apply_user_preferences(
-        self, results: List[Tuple[str, float]], user_profile: UserProfile ) -> List[Tuple[str, float]]:
-        """
-        Apply bounded personalization on top of base relevance/freshness scores. Personalization is clamped
-        so input score dominates.
-
-        INPUTS
-        -results: List of (article_id, base_score) tuples.
-        -user_profile:
-            - user_id: to fetch stored prefs from DB (ent:*, topic:*).
-            - preferred_topics: keywords used if no learned topic prefs are found.
-            - preferred_content_types: adds a fixed bonus when article content_type matches.
-
-        LOGIC
-        1) sum learned entity weights if learned, clamp to [-2, 2],
-        then scale by personalization_weight.
-        2) sum topic weights
-        - If learned: add learned topic weights.
-        - Else: add +1.0 per default user preferred topic match.
-        3) add fixed boost if content_type matches.
-        4) Diversity: small penalty if the same source repeats.
-        5) Combine all deltas, clamp total personalization
-        (default cap = [-0.5, 0.8]).
-        Final score = base_score + clamped_delta - diversity_penalty.
-
-        returns sorted list of (article_id, score).
-        """
-        if not results or not user_profile:
-            return results
-
-        # ---- Batch fetch article rows once
-        article_ids = [aid for aid, _ in results]
-        articles = self.db.get_articles_by_ids(article_ids)
-        articles_by_id = {a.id: a for a in articles}
-
-        # ---- Pull learned prefs (entity-centric) for this user
-        user_id = getattr(user_profile, "user_id", None) or "default"
-        prefs = self.db.get_user_prefs(user_id)  # e.g., {'ent:nvidia': 1.3, 'ent:ecb': -0.6, ...}
-        
-        # {"nvidia":1.3}
-        user_ent_weights = {k.split(":", 1)[1]: v for k, v in prefs.items() if k.startswith("ent:")}
-        user_topic_weights = {k.split(":", 1)[1]: v for k, v in prefs.items() if k.startswith("topic:")}
-
-        # ---- Weights (safe defaults if missing from config)
-        entity_weight_constant = getattr(self.config, "personalization_weight", 0.10)   # scales learned prefs
-        topic_weight_constant = getattr(self.config, "topic_string_weight", 0.05)     # scales title/desc topic hits
-        bonus_content_type = getattr(self.config, "content_type_bonus", 0.10)
-        # audience removed
-        repeat_src_penalty = getattr(self.config, "per_source_repeat_penalty", 0.02)
-
-        scored: List[Tuple[str, float]] = []
-        seen_sources: set[str] = set()
-
-        for article_id, base_score in results:
-            a = articles_by_id.get(article_id)
-            if not a:
-                continue
-
-            # 1) Learned entities weight  (primary signal)
-            
-            # get 10 entities of the article
-            ents = [e.lower() for e in (getattr(a, "entities", None) or [])][:self.config.max_entities_per_article]
-            
-            # if they are in user prefs, get their weight sum
-            ent_delta = sum(user_ent_weights.get(e, 0.0) for e in ents)
-            
-            article_entity_score_clamp = getattr(self.config,"article_entity_score_clamp")
-
-            # per-article clamp
-            if ent_delta > article_entity_score_clamp[1]:
-                ent_delta = article_entity_score_clamp[1]
-            elif ent_delta < article_entity_score_clamp[0]:
-                ent_delta = article_entity_score_clamp[0]
 
 
-            # TODO should we clamp?
-            # 2) Topic weight (fallback to default preferred topics if not learned any)
-            topic_delta = 0.0
-            search_text = f"{a.title}".lower()
-            if a.description:
-                search_text += a.description.lower()
-
-            if user_topic_weights:
-                # boost if learned topic:* weights
-                for t, w in user_topic_weights.items():
-                    if t and t in search_text:
-                        topic_delta += w
-            else:
-                # cold-start: use user's default preferred topics
-                for t in (user_profile.preferred_topics):
-                    t = (t or "").lower().strip()
-                    if t and t in search_text:
-                        topic_delta += 1.0
-
-            # 3) Simple categorical bonuses
-            ctype_b = bonus_content_type if a.content_type in (user_profile.preferred_content_types or []) else 0.0
-
-            # 4) Source diversity nudge (tiny penalty for repeats in the list)
-            src_name = getattr(getattr(a, "source", None), "name", None)
-            diversity_pen = repeat_src_penalty if src_name and src_name in seen_sources else 0.0
-
-            # 5) Final personalized score
-            raw_delta = (
-                entity_weight_constant * ent_delta      # learned per-entity prefs (already ±2 clamped)
-                + topic_weight_constant * topic_delta # topic string matches
-                + ctype_b                 # categorical bonus
-            )
-
-            # clamp the total personalization bump so that base_score is the dominant score
-            low, high = getattr(self.config, "personalization_cap", (-0.5, 0.8))
-            bump = float(np.clip(raw_delta, low, high))
-
-            # apply tiny diversity penalty after clamp
-            score = base_score + bump - diversity_pen
-
-            scored.append((article_id, score))
-            if src_name:
-                seen_sources.add(src_name)
-
-        return sorted(scored, key=lambda x: x[1], reverse=True)
-
-
-    async def _ensure_balance_and_diversity(self, results: List[Tuple[str, float]]) -> List[Tuple[str, float]]:
-        """Ensure source diversity with batch database query"""
-        if len(results) < 5:
-            return results
-        
-        balanced_results = []
-        seen_sources = set()
-        
-        # Batch query for all articles
-        article_ids = [aid for aid, _ in results]
-        articles = self.db.get_articles_by_ids(article_ids)
-        articles_dict = {a.id: a for a in articles}
-        
-        for article_id, score in results:
-            article = articles_dict.get(article_id)
-            if not article:
-                continue
-            
-            if (article.source.id not in seen_sources or 
-                len(balanced_results) < self.config.min_sources):
-                balanced_results.append((article_id, score))
-                seen_sources.add(article.source.id)
-            elif len(balanced_results) >= self.config.min_sources:
-                balanced_results.append((article_id, score))
-        
-        return balanced_results
-
-    # Keep existing methods for BM25 search, semantic search, etc.
-    # bm25 has no upper bound >=0, the higher the better
-    def _bm25_search(self, query: str, limit: int = 50) -> List[Tuple[str, float]]:
-        """BM25 keyword search"""
-        if not self.bm25_index:
-            return []
-        
-        q_tokens = _tokenize(query)
-        scores = self.bm25_index.get_scores(q_tokens)
-        
-        scored_indices = [(i, scores[i]) for i in range(len(scores))]
-        scored_indices.sort(key=lambda x: x[1], reverse=True)
-        
-        results = []
-        for idx, score in scored_indices[:limit]:
-            if score > 0:
-                article = self.bm25_articles[idx]
-                results.append((article.id, score))
-        
-        return results
+    # ============================================================================
+    # SPECIALIZED RAG STRATEGIES
+    # ============================================================================
     
-    def _semantic_search(self, query: str, limit: int = 50,score_threshold = 0) -> List[Tuple[str, float]]:
-        """Semantic search using embeddings, raises expection if score_threshold is less than 0"""
-        try:
-            if score_threshold < 0:
-                raise Exception("score threshold cant be less than 0")
-            return self.embeddings.semantic_search(query, k=limit,score_threshold=score_threshold)
-        except Exception as e:
-            print(f" Semantic search failed: {e}")
-            return []
-
-    def _combine_hybrid_scores(self, bm25_results: List[Tuple[str, float]], 
-                              semantic_results: List[Tuple[str, float]]) -> List[Tuple[str, float]]:
-        """Combine BM25 and semantic scores based on configured weighting combinations in self.config"""
-        
-        # normalize to 0-1 range
-        # assumes input scores are positive
-        def normalize_scores(results):
-            if not results:
-                return {}
-            max_score = max(score for _, score in results)
-            if max_score == 0:
-                return {}
-            return {article_id: score/max_score for article_id, score in results}
-        
-        bm25_norm = normalize_scores(bm25_results)
-        semantic_norm = normalize_scores(semantic_results)
-        
-        all_ids = set(bm25_norm.keys()) | set(semantic_norm.keys())
-        
-        combined = []
-        for article_id in all_ids:
-            bm25_score = bm25_norm.get(article_id, 0) * self.config.bm25_weight
-            semantic_score = semantic_norm.get(article_id, 0) * self.config.semantic_weight
-            
-            final_score = bm25_score + semantic_score
-            combined.append((article_id, final_score))
-        
-        return sorted(combined, key=lambda x: x[1], reverse=True)
-
-    # breaking news rag
     async def _breaking_news_rag(self, query: SearchQuery, user_profile: Optional[UserProfile]) -> List[SearchResult]:
         """Breaking News RAG: Heavy freshness weighting + urgency bias"""
         recent_articles = self.db.search_articles(
@@ -699,11 +446,6 @@ class MultiRAGRetriever:
         scored_results.sort(key=lambda x: x[1], reverse=True)
         return self._create_search_results(scored_results, query, user_profile)[:query.limit]
     
-
-    # background analysis rag
-    # anaylzes based on content quality
-    # assumes long articles = better quality
-    # score content quality based on 3 factors: Length (40% weight) Source credibility (30% weight) Content complexity (30% weight)
     async def _background_analysis_rag(self, query: SearchQuery, user_profile: Optional[UserProfile]) -> List[SearchResult]:
         """Background Analysis RAG: Multi-factor content quality scoring"""
         
@@ -725,7 +467,7 @@ class MultiRAGRetriever:
         scored_results = []
         for article in analysis_articles:
             # Multi-factor content quality scoring
-            content_quality_score = self._calculate_content_quality(article)
+            content_quality_score = self.content_analyzer.calculate_content_quality(article)
             
             # Content type boost based on configuration
             if article.content_type == ContentType.ANALYSIS:
@@ -739,73 +481,10 @@ class MultiRAGRetriever:
         scored_results.sort(key=lambda x: x[1], reverse=True)
         return self._create_search_results(scored_results, query, user_profile)[:query.limit]
 
-    def _calculate_content_quality(self, article: Article) -> float:
-       """Calculate multi-factor content quality score"""
-       
-       # 1. Length-based quality (longer = more comprehensive)
-       length_score = min(1.0, len(article.content) / self.config.background_content_length_threshold)
-       
-       # 2. Source credibility (Reuters > Fox News > Unknown)
-       credibility_score = article.source.credibility_score  # Already 0-1 range
-       
-       # 3. Content complexity (simple heuristic for now)
-       complexity_score = self._estimate_content_complexity(article)
-       
-       # Weighted combination
-       quality_score = (
-           length_score * self.config.content_length_weight +
-           credibility_score * self.config.source_credibility_weight +
-           complexity_score * self.config.content_complexity_weight
-       )
-       
-       return min(1.0, quality_score)  # Ensure max score is 1.0
     
-    def _estimate_content_complexity(self, article: Article) -> float:
-       """Simple content complexity estimation"""
-       try:
-           content = article.content
-           if not content or len(content) < 100:
-               return 0.0
-           
-           # Simple complexity metrics
-           avg_sentence_length = self._calculate_avg_sentence_length(content)
-           unique_word_ratio = self._calculate_unique_word_ratio(content)
-           
-           # Normalize to 0-1 range
-           # Optimal sentence length: 15-25 words (inverted U-shape)
-           sentence_complexity = 1 - abs(avg_sentence_length - 20) / 20
-           sentence_complexity = max(0, min(1, sentence_complexity))
-           
-           # Higher unique word ratio = more complex vocabulary
-           vocab_complexity = min(1.0, unique_word_ratio * 2)  # Cap at 50% unique words
-           
-           # Combined complexity score
-           complexity_score = (sentence_complexity * 0.6 + vocab_complexity * 0.4)
-           return max(0.0, min(1.0, complexity_score))
-           
-       except Exception:
-           # Fallback to medium complexity if calculation fails
-           return 0.5
-    
-    def _calculate_avg_sentence_length(self, text: str) -> float:
-       """Calculate average sentence length in words"""
-       # Simple sentence splitting (could use NLTK for better accuracy)
-       sentences = [s.strip() for s in text.replace('!', '.').replace('?', '.').split('.') if s.strip()]
-       
-       if not sentences:
-           return 10.0  # Default fallback
-       
-       total_words = sum(len(sentence.split()) for sentence in sentences)
-       return total_words / len(sentences)
-    
-    def _calculate_unique_word_ratio(self, text: str) -> float:
-       """Calculate ratio of unique words to total words"""
-       words = text.lower().split()
-       if not words:
-           return 0.0
-       
-       unique_words = set(words)
-       return len(unique_words) / len(words)
+    # ============================================================================
+    # RESULT FORMATTING AND EXPLANATION
+    # ============================================================================
     
     def _create_search_results(self, scored_results: List[Tuple], 
                              query: SearchQuery, 
@@ -856,8 +535,6 @@ class MultiRAGRetriever:
         
         if article.source.credibility_score > 0.8:
             reasons.append("from trusted source")
-        
-        # audience removed
             
         # Entity explanation: show up to two seed entities present in this article
         seed = set(self._ner_entities_from_text(query.text))
@@ -867,10 +544,4 @@ class MultiRAGRetriever:
                 reasons.append(f"mentions {', '.join(inter)}")
 
         return f"Recommended because: {', '.join(reasons[:3])}" if reasons else "Relevant content"
-    
-    def _ner_entities_from_text(self, text: str) -> list[str]:
-        if not text: return []
-        doc = _NER(text)
-        keep = {"PERSON","ORG","GPE","LOC","PRODUCT","EVENT","WORK_OF_ART"}
-        return list({e.text.strip() for e in doc.ents if e.label_ in keep})
     

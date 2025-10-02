@@ -12,7 +12,7 @@ from sklearn.model_selection import train_test_split
 from .data_models import Article
 from .storage import ArticleDB
 from .embeddings import EmbeddingSystem
-from .config import RerankFeatureConfig, NeuralRerankerConfig
+from .config import RerankFeatureConfig, NeuralRerankerConfig, RAGConfig
 
 
 class RerankFeatureExtractor:
@@ -443,6 +443,136 @@ class NeuralRerankerManager:
             parts.append(content_preview)
         
         return " ".join(parts)
+
+
+class RerankingEngine:
+    """Handles reranking operations for news recommendations"""
+    
+    def __init__(self, config: RAGConfig, embeddings: EmbeddingSystem):
+        self.config = config
+        self.embeddings = embeddings
+        self.cross_encoder = None
+        if config.enable_cross_encoder:
+            self._init_cross_encoder()
+    
+    def _init_cross_encoder(self):
+        """Initialize cross-encoder for reranking (lazy loading)"""
+        try:
+            from sentence_transformers import CrossEncoder
+            self.cross_encoder = CrossEncoder('cross-encoder/ms-marco-MiniLM-L-2-v2')
+            print(" Loaded cross-encoder for reranking")
+        except Exception as e:
+            print(f" Failed to load cross-encoder: {e}")
+            self.config.enable_cross_encoder = False
+    
+    def apply_mmr_diversification(self, results: List[Tuple[str, float]], 
+                                top_k: int, articles_dict: Dict[str, Article]) -> List[Tuple[str, float]]:
+        """Apply MMR diversification on (article_id, score) list"""
+        if not results or not getattr(self.config, "use_mmr_in_search", False):
+            return results
+
+        pool_n = max(top_k, int(getattr(self.config, "mmr_pool", 50)))
+        lambda_ = float(getattr(self.config, "mmr_lambda", 0.7))
+
+        # Truncate pool and fetch article texts
+        pool = sorted(results, key=lambda x: x[1], reverse=True)[:pool_n]
+        pool_ids = [aid for aid, _ in pool]
+
+        texts = []
+        kept = []
+        for i, aid in enumerate(pool_ids):
+            a = articles_dict.get(aid)
+            if not a:
+                continue
+            desc = a.description or ""
+            head = (a.content or "")[:500]
+            texts.append(f"{a.title} {desc} {head}")
+            kept.append(i)
+
+        if len(texts) < 2:
+            return pool
+
+        # Encode and normalize for cosine
+        X = self.embeddings.encode_texts(texts).astype('float32', copy=False)
+        X = X / (np.linalg.norm(X, axis=1, keepdims=True) + 1e-12)
+        S = X @ X.T
+        np.fill_diagonal(S, 1.0)
+
+        id_to_score = {aid: s for aid, s in pool}
+        selected_local: List[int] = []
+        remaining_local: List[int] = list(range(len(kept)))
+
+        while remaining_local and len(selected_local) < top_k:
+            best_j = None
+            best_val = -1e9
+            for j in remaining_local:
+                aid = pool_ids[kept[j]]
+                rel = float(id_to_score.get(aid, 0.0))
+                if not selected_local:
+                    val = rel
+                else:
+                    max_sim = max(S[j, t] for t in selected_local)
+                    val = lambda_ * rel - (1.0 - lambda_) * max_sim
+                if val > best_val:
+                    best_val = val
+                    best_j = j
+            selected_local.append(best_j)
+            remaining_local.remove(best_j)
+
+        # Build final sequence
+        final_pairs: List[Tuple[str, float]] = []
+        for j in selected_local:
+            aid = pool_ids[kept[j]]
+            final_pairs.append((aid, id_to_score.get(aid, 0.0)))
+
+        return final_pairs
+    
+    async def apply_cross_encoder_reranking(self, query: str, results: List[Tuple[str, float]], 
+                                          articles_dict: Dict[str, Article]) -> List[Tuple[str, float]]:
+        """Self-RAG: Rerank results using cross-encoder"""
+        if not self.cross_encoder or not results:
+            return results
+        
+        try:
+            # Prepare query-article pairs for cross-encoder
+            pairs = []
+            valid_results = []
+            
+            for article_id, original_score in results:
+                article = articles_dict.get(article_id)
+                if article:
+                    # Combine title and description for reranking
+                    article_text = f"{article.title} {article.description or ''}"
+                    pairs.append([query, article_text])
+                    valid_results.append((article_id, original_score))
+            
+            if not pairs:
+                return results
+            
+            # Get cross-encoder scores
+            cross_scores = self.cross_encoder.predict(pairs)
+            
+            # Combine original scores with cross-encoder scores
+            reranked_results = []
+            for i, (article_id, original_score) in enumerate(valid_results):
+                cross_score = cross_scores[i]
+                
+                # Weighted combination
+                combined_score = (
+                    original_score * (1 - self.config.cross_encoder_weight) +
+                    cross_score * self.config.cross_encoder_weight
+                )
+                reranked_results.append((article_id, combined_score))
+            
+            # Sort by combined score
+            reranked_results.sort(key=lambda x: x[1], reverse=True)
+            
+            print(f" Cross-encoder reranked {len(reranked_results)} results")
+            return reranked_results
+            
+        except Exception as e:
+            print(f" Cross-encoder reranking failed: {e}")
+            return results
 
 
 def build_training_data_from_events(
