@@ -172,7 +172,7 @@ class NewsDataIOProvider(ArticleProvider):
             published_at=published_at,        # tz-aware UTC
             author=author,
             content_type=ContentType.FACTUAL, # default; classifier can overwrite
-            topics=[category],                # ← map NewsData category to Article.topics
+            topics=[category.value],          # ← map NewsData category to Article.topics
         )
 
     @staticmethod

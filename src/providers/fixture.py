@@ -253,7 +253,7 @@ class FixtureProvider(ArticleProvider):
             published_at=published_at,
             author=author,
             content_type=ContentType.FACTUAL,
-            topics=[category],  # map category → topics for free "topic" signal
+            topics=[category.value],  # map category → topics for free "topic" signal
             entities=item.get("entities", []),  # Extract entities with types (name, type, count)
         )
     

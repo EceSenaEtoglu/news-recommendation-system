@@ -44,22 +44,25 @@ def get_category_badge(article: Article) -> str:
     if hasattr(article, 'topics') and article.topics:
         category = article.topics[0]  # First topic is usually the category
     elif hasattr(article, 'source') and hasattr(article.source, 'category'):
-        category = article.source.category.value if hasattr(article.source.category, 'value') else str(article.source.category)
-    
+        category = article.source.category.value  # Get the string value
+
     if not category:
         return ""
     
     # Create a styled category badge
     category_colors = {
-        SourceCategory.TECHNOLOGY.value: '#3B82F6',    # Blue
-        SourceCategory.WORLD.value: '#10B981',         # Green  
-        SourceCategory.BUSINESS.value: '#F59E0B',      # Orange
-        SourceCategory.POLITICS.value: '#EF4444',      # Red
-        SourceCategory.SCIENCE.value: '#8B5CF6',       # Purple
-        SourceCategory.GENERAL.value: '#6B7280'        # Gray
+        'technology': '#3B82F6',    # Blue
+        'world': '#10B981',         # Green  
+        'business': '#F59E0B',      # Orange
+        'politics': '#EF4444',      # Red
+        'science': '#8B5CF6',       # Purple
+        'general': '#6B7280'        # Gray
     }
-    color = category_colors.get(category.lower(), '#E5E7EB')  # Light gray for unknown categories
-    return f"<span style='background-color: {color}; color: white; padding: 2px 8px; border-radius: 12px; font-size: 12px; font-weight: 500;'>{category.upper()}</span>"
+    
+    # Use lowercase for color lookup, uppercase for display
+    category_lower = str(category).lower()
+    color = category_colors.get(category_lower, '#E5E7EB')  # Light gray for unknown categories
+    return f"<span style='background-color: {color}; color: white; padding: 2px 8px; border-radius: 12px; font-size: 12px; font-weight: 500;'>{str(category).upper()}</span>"
 
 
 def load_fixtures(folder: str, featured_limit: int, candidate_limit: int):
