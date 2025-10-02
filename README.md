@@ -24,6 +24,9 @@ streamlit run streamlit_app.py
 ```
 
 **Web Interface Features:**
+<img width="945" height="426" alt="image" src="https://github.com/user-attachments/assets/5ea9118c-172b-4744-8473-9ca48b0e3de2" />
+<img width="945" height="422" alt="image" src="https://github.com/user-attachments/assets/69ffeb29-ba8f-4ca0-9982-4c07de3e26ab" />
+
 - 🎯 **Interactive AI Recommendations** with multiple models
 - 📰 **Featured Articles** with semantic search
 - 📚 **Saved Articles** with AI summarization
@@ -74,29 +77,6 @@ streamlit run streamlit_app.py
 - 🔮 **Real-time Learning**: Continuous model improvement
 - 🔮 **Advanced Analytics**: Recommendation insights
 
-## 🐛 Troubleshooting
 
-### **Setup Issues**
-```bash
-# Install dependencies first
-pip install -r requirements.txt
-
-# If no articles found
-python scripts/demo.py --setup
-
-# If models fail to load
-python scripts/demo.py --fetch
-```
-
-### **Common Installation Issues**
-- **Streamlit not found**: `pip install streamlit`
-- **FAISS installation**: `pip install faiss-cpu` (or `faiss-gpu` for GPU)
-- **spaCy model**: `python -m spacy download en_core_web_sm`
-- **Transformers**: `pip install transformers torch`
-
-### **Common Issues**
-- **Memory**: Close other applications for large models
-- **Network**: Ensure internet connection for model downloads
-- **Dependencies**: Install all requirements: `pip install -r requirements.txt`
 
 ---
