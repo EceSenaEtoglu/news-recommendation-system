@@ -161,10 +161,10 @@ class MultiRAGRetriever:
             # None = use hybrid RAG (default for MVP)
 
             if query.query_type:
-                if query.query_type == "breaking":
-                    results = await self._breaking_news_rag(query, user_profile)
-                elif query.query_type == "background": 
-                    results = await self._background_analysis_rag(query, user_profile)
+            if query.query_type == "breaking":
+                results = await self._breaking_news_rag(query, user_profile)
+            elif query.query_type == "background": 
+                results = await self._background_analysis_rag(query, user_profile)
                 else:
                     results = await self._hybrid_rag(query, user_profile)
 
@@ -497,7 +497,7 @@ class MultiRAGRetriever:
         except Exception as e:
             print(f" Entity-based article search failed: {e}")
             return {}
-    
+
     # ============================================================================
     # RESULT FORMATTING AND EXPLANATION
     # ============================================================================

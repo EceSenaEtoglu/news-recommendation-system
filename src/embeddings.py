@@ -33,13 +33,13 @@ class EmbeddingSystem:
                 dimension=768,
                 description="High-quality general-purpose model"
             ),
-            "news-similarity": EmbeddingModelConfig(
-                name="news-similarity",
-                model_path="Blablablab/newsSimilarity",
-                dimension=768,
-                description="News-specific similarity model",
-                is_news_specific=True
-            ),
+            #"news-similarity": EmbeddingModelConfig(
+            #    name="news-similarity",
+            #    model_path="Blablablab/newsSimilarity",
+            #    dimension=768,
+            #    description="News-specific similarity model",
+            #    is_news_specific=True
+            #),
             # "paraphrase-multilingual": EmbeddingModelConfig(
             #     name="paraphrase-multilingual",
             #     model_path="sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",

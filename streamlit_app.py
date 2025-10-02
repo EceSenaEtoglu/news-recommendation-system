@@ -554,7 +554,6 @@ def main():
                 with st.spinner(f"Generating {ss.recommendation_type.lower()} recommendations..."):
                     cmd_map = { "Basic": ["--recommend", ss.selected_article_id], "Enhanced (Neural)": ["--enhanced", ss.selected_article_id], "Multi-Model": ["--multi-model", ss.selected_article_id], }
                     cmd = [sys.executable, "scripts/demo.py"] + cmd_map[ss.recommendation_type] + ["--k", str(ss.num_recommendations)]
-                    # TODO
                     result = subprocess.run(cmd, capture_output=True, text=True, check=False, cwd=os.getcwd(), env=os.environ.copy())
                     
                     recommendations = []

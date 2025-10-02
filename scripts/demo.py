@@ -399,65 +399,57 @@ def cmd_list_models():
     print()
 
 
-# def cmd_model_info():
-#     """Show current model information"""
-#     emb = EmbeddingSystem()
-#     stats = emb.get_stats()
-#     
-#     print("Current Model Information:")
-#     print("=" * 40)
-#     print(f"Primary Model: {stats['model']}")
-#     print(f"Index Vectors: {stats['total_vectors']}")
-#     print(f"Dimension: {stats['dimension']}")
-#     print(f"Available Models: {len(stats['available_models'])}")
-#     print()
+def cmd_model_info():
+    """Show current model information"""
+    print("Model information not available (get_stats method removed)")
+    print()
 
 
-# def main():
-#     """Main CLI interface"""
-#     parser = argparse.ArgumentParser(description="AI News Demo")
-#     parser.add_argument("--setup", action="store_true", help="Setup data (import fixtures and build index)")
-#     parser.add_argument("--fetch-and-setup", action="store_true", help="Fetch new articles and setup data")
-#     parser.add_argument("--demo", action="store_true", help="Run comprehensive demo")
-#     parser.add_argument("--recommend", help="Get basic recommendations for article ID")
-#     parser.add_argument("--enhanced", help="Get enhanced recommendations for article ID")
-#     parser.add_argument("--multi-model", help="Get multi-model recommendations for article ID")
-#     parser.add_argument("--k", type=int, default=5, help="Number of recommendations to return")
-#     parser.add_argument("--model", help="Specify embedding model to use")
-#     parser.add_argument("--models", nargs="+", help="Models for multi-model fusion")
-#     parser.add_argument("--list-models", action="store_true", help="List available models")
-#     parser.add_argument("--model-info", action="store_true", help="Show model information")
-#     
-#     args = parser.parse_args()
-#     
-#     try:
-#         if args.setup:
-#             setup_data()
-#         elif args.fetch_and_setup:
-#             fetch_and_setup_data()
-#         elif args.demo:
-#             run_demo()
-#         elif args.recommend:
-#             cmd_recommend(args.recommend, args.k)
-#         elif args.enhanced:
-#             cmd_enhanced_recommend(args.enhanced, args.k, args.model)
-#         elif args.multi_model:
-#             cmd_multi_model_recommend(args.multi_model, args.k, args.models)
-#         elif args.list_models:
-#             cmd_list_models()
-#         elif args.model_info:
-#             cmd_model_info()
-#         else:
-#             # Default: run demo
-#             run_demo()
-#             
-#     except KeyboardInterrupt:
-#         print("\n\nDemo interrupted by user")
-#     except Exception as e:
-#         print(f"\nError: {e}")
-#         import traceback
-#         traceback.print_exc()
+def main():
+    """Main CLI interface"""
+    parser = argparse.ArgumentParser(description="AI News Demo")
+    parser.add_argument("--setup", action="store_true", help="Setup data (import fixtures and build index)")
+    parser.add_argument("--fetch-and-setup", action="store_true", help="Fetch new articles and setup data")
+    parser.add_argument("--demo", action="store_true", help="Run comprehensive demo")
+    parser.add_argument("--recommend", help="Get basic recommendations for article ID")
+    parser.add_argument("--enhanced", help="Get enhanced recommendations for article ID")
+    parser.add_argument("--multi-model", help="Get multi-model recommendations for article ID")
+    parser.add_argument("--k", type=int, default=5, help="Number of recommendations to return")
+    parser.add_argument("--model", help="Specify embedding model to use")
+    parser.add_argument("--models", nargs="+", help="Models for multi-model fusion")
+    parser.add_argument("--list-models", action="store_true", help="List available models")
+    parser.add_argument("--model-info", action="store_true", help="Show model information")
+    
+    args = parser.parse_args()
+    
+    try:
+        if args.setup:
+            setup_data()
+        elif args.fetch_and_setup:
+            fetch_and_setup_data()
+        elif args.demo:
+            run_demo()
+        elif args.recommend:
+            cmd_recommend(args.recommend, args.k)
+        elif args.enhanced:
+            cmd_enhanced_recommend(args.enhanced, args.k, args.model)
+        elif args.multi_model:
+            cmd_multi_model_recommend(args.multi_model, args.k, args.models)
+        elif args.list_models:
+            cmd_list_models()
+        elif args.model_info:
+            cmd_model_info()
+        else:
+            # Default: run demo
+            run_demo()
+            
+    except KeyboardInterrupt:
+        print("\n\nDemo interrupted by user")
+    except Exception as e:
+        print(f"\nError: {e}")
+        import traceback
+        traceback.print_exc()
 
 
-# if __name__ == "__main__":
-#     main()
+if __name__ == "__main__":
+    main()
