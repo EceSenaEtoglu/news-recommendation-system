@@ -143,7 +143,7 @@ class EmbeddingSystem:
             return 0
         
         # Generate embeddings
-        embeddings = self.encode_texts(texts).astype('float32', copy=False)
+        embeddings = self.encode_texts(texts).astype('float32', copy=False)  #shape (n_articles, d)
         embeddings = np.ascontiguousarray(embeddings)
         faiss.normalize_L2(embeddings)
 
@@ -181,12 +181,14 @@ class EmbeddingSystem:
             return []
         
         # Encode query
-        query_embedding = self.encode_text(query, model_name).astype('float32', copy=False).reshape(1, -1)
+        query_embedding = self.encode_text(query, model_name).astype('float32', copy=False).reshape(1, -1)  #shape (1, d)
         query_embedding = np.ascontiguousarray(query_embedding)
         faiss.normalize_L2(query_embedding)
 
         
         # Search
+        # query embedding must be shape (1, d)
+
         scores, indices = self.index.search(query_embedding, min(k, self.index.ntotal))
         
         results = []

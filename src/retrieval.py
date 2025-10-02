@@ -148,20 +148,26 @@ class MultiRAGRetriever:
     # MAIN SEARCH INTERFACE
     # ============================================================================
 
+    # Route to appropriate RAG strategy based on query type
+    # TODO routing mechanism should be enhanced!
     async def search(self, query: SearchQuery, user_profile: Optional[UserProfile] = None) -> List[SearchResult]:
         """Main search function with performance monitoring. Uses query routing mechanism"""
         start_time = time.time()
         
         try:
-            # Route to appropriate RAG strategy
-            
             # Query type refers to different angles or aspects of coverage for the same underlying news event
             # "Breaking news" = immediate, surface-level updates
-            #"Background pieces" = explanatory journalism that provides context
-            if query.query_type == "breaking":
-                results = await self._breaking_news_rag(query, user_profile)
-            elif query.query_type == "background": 
-                results = await self._background_analysis_rag(query, user_profile)
+            # "Background pieces" = explanatory journalism that provides context
+            # None = use hybrid RAG (default for MVP)
+
+            if query.query_type:
+                if query.query_type == "breaking":
+                    results = await self._breaking_news_rag(query, user_profile)
+                elif query.query_type == "background": 
+                    results = await self._background_analysis_rag(query, user_profile)
+                else:
+                    results = await self._hybrid_rag(query, user_profile)
+
             else:
                 results = await self._hybrid_rag(query, user_profile)
             
@@ -235,6 +241,79 @@ class MultiRAGRetriever:
         final_results = self._create_search_results(balanced_results, query, user_profile)
         
         return final_results[:query.limit]
+
+    # looks at recent news articles, 6 hours old max
+    # adds urgency score and freshness score to boost articles
+    # TODO currently does not implement ANY user preference or similarity of articles or entity expansion
+    async def _breaking_news_rag(self, query: SearchQuery, user_profile: Optional[UserProfile]) -> List[SearchResult]:
+        """Breaking News RAG: Heavy freshness weighting + urgency bias"""
+        recent_articles = self.db.search_articles(
+            query=query.text,
+            hours_back=6,
+            limit=100
+        )
+        
+        scored_results = []
+        for article in recent_articles:
+            urgency_score = article.urgency_score
+            hours_old = (datetime.now(datetime.timezone.utc)- article.published_at).total_seconds() / 3600
+            freshness_score = max(0, 1 - (hours_old / 6))
+            
+            final_score = (urgency_score * RAGConfig.breaking_news_urgency_coeff)+ (freshness_score * RAGConfig.breaking_news_freshness_coeff)
+            scored_results.append((article.id, final_score, article))
+        
+        # sort based on reverse final_score to get the most recent news
+        scored_results.sort(key=lambda x: x[1], reverse=True)
+        return self._create_search_results(scored_results, query, user_profile)[:query.limit]
+    
+    # prioritizes content quality over freshness, looks at the articles from last week
+    # uses graph RAG to expand the results
+    # no similarity of articles
+    async def _background_analysis_rag(self, query: SearchQuery, user_profile: Optional[UserProfile]) -> List[SearchResult]:
+        """Background Analysis RAG: Multi-factor content quality scoring"""
+        
+        analysis_articles = self.db.search_articles(
+            query=query.text,
+            content_types=[ContentType.ANALYSIS, ContentType.FEATURE],
+            hours_back=24*7,  # Last week
+            limit=50
+        )
+        
+        # Convert to initial results format for graph expansion
+        initial_results = [(a.id, 1.0) for a in analysis_articles]  # Base score of 1.0
+        
+        if self.config.enable_graph_rag:
+            expanded_results = await self._apply_graph_expansion(query.text, initial_results)
+        else:
+            expanded_results = initial_results
+        
+        # Get the expanded articles
+        expanded_article_ids = [aid for aid, _ in expanded_results]
+        expanded_articles = self.db.get_articles_by_ids(expanded_article_ids)
+        articles_dict = {a.id: a for a in expanded_articles}
+        
+        scored_results = []
+        for article_id, base_score in expanded_results:
+            article = articles_dict.get(article_id)
+            if not article:
+                continue
+                
+            # Multi-factor content quality scoring
+            content_quality_score = self.content_analyzer.calculate_content_quality(article)
+            
+            # Content type boost based on configuration
+            if article.content_type == ContentType.ANALYSIS:
+                content_boost = self.config.background_analysis_boost
+            else:  # ContentType.FEATURE
+                content_boost = self.config.background_feature_boost
+            
+            # Combine base score (from graph expansion) with content quality
+            final_score = base_score * content_quality_score * content_boost
+            scored_results.append((article.id, final_score, article))
+        
+        scored_results.sort(key=lambda x: x[1], reverse=True)
+        return self._create_search_results(scored_results, query, user_profile)[:query.limit]
+
 
     # ============================================================================
     # SEARCH METHODS
@@ -418,74 +497,10 @@ class MultiRAGRetriever:
         except Exception as e:
             print(f" Entity-based article search failed: {e}")
             return {}
-
-
-
-    # ============================================================================
-    # SPECIALIZED RAG STRATEGIES
-    # ============================================================================
-    
-    async def _breaking_news_rag(self, query: SearchQuery, user_profile: Optional[UserProfile]) -> List[SearchResult]:
-        """Breaking News RAG: Heavy freshness weighting + urgency bias"""
-        recent_articles = self.db.search_articles(
-            query=query.text,
-            hours_back=6,
-            limit=100
-        )
-        
-        scored_results = []
-        for article in recent_articles:
-            urgency_score = article.urgency_score
-            hours_old = (datetime.now(datetime.timezone.utc)- article.published_at).total_seconds() / 3600
-            freshness_score = max(0, 1 - (hours_old / 6))
-            
-            final_score = (urgency_score * RAGConfig.breaking_news_urgency_coeff)+ (freshness_score * RAGConfig.breaking_news_freshness_coeff)
-            scored_results.append((article.id, final_score, article))
-        
-        # sort based on reverse final_score to get the most recent news
-        scored_results.sort(key=lambda x: x[1], reverse=True)
-        return self._create_search_results(scored_results, query, user_profile)[:query.limit]
-    
-    async def _background_analysis_rag(self, query: SearchQuery, user_profile: Optional[UserProfile]) -> List[SearchResult]:
-        """Background Analysis RAG: Multi-factor content quality scoring"""
-        
-        analysis_articles = self.db.search_articles(
-            query=query.text,
-            content_types=[ContentType.ANALYSIS, ContentType.FEATURE],
-            hours_back=24*7,  # Last week
-            limit=50
-        )
-        
-        # entity aware expansion, only 30 days, 30 new articles
-        seed = set(self._ner_entities_from_text(query.text))
-        if seed:
-            extra = self.db.get_articles_by_entities(list(seed), limit=30, hours_back=24*30)
-            existing_ids = {a.id for a in analysis_articles}
-            analysis_articles += [a for a in extra if a.id not in existing_ids]
-
-        
-        scored_results = []
-        for article in analysis_articles:
-            # Multi-factor content quality scoring
-            content_quality_score = self.content_analyzer.calculate_content_quality(article)
-            
-            # Content type boost based on configuration
-            if article.content_type == ContentType.ANALYSIS:
-                content_boost = self.config.background_analysis_boost
-            else:  # ContentType.FEATURE
-                content_boost = self.config.background_feature_boost
-            
-            final_score = content_quality_score * content_boost
-            scored_results.append((article.id, final_score, article))
-        
-        scored_results.sort(key=lambda x: x[1], reverse=True)
-        return self._create_search_results(scored_results, query, user_profile)[:query.limit]
-
     
     # ============================================================================
     # RESULT FORMATTING AND EXPLANATION
     # ============================================================================
-    
     def _create_search_results(self, scored_results: List[Tuple], 
                              query: SearchQuery, 
                              user_profile: Optional[UserProfile]) -> List[SearchResult]:
@@ -514,6 +529,7 @@ class MultiRAGRetriever:
        
        return search_results
    
+    # TODO use a gpt to create a detailed explanation
     def _generate_explanation(self, article: Article, query: SearchQuery, 
                              user_profile: Optional[UserProfile]) -> str:
         """Generate explanation for recommendations"""

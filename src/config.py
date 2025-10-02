@@ -78,10 +78,6 @@ class RAGConfig:
     max_entities_per_article: int = MAX_ENTITIES_PER_ARTICLE
     max_topics_per_article: int = MAX_TOPICS_PER_ARTICLE
 
-    # MMR diversification for search results (moved to RecommendationConfig to avoid duplication)
-    # use_mmr_in_search: bool = False
-    # mmr_lambda: float = 0.7
-    # mmr_pool: int = 50
 
 
 @dataclass

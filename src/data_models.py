@@ -126,7 +126,7 @@ class SearchQuery:
     """Search query with metadata"""
     text: str
     user_id: Optional[str] = None
-    query_type: str = "general"  # general, breaking, background
+    query_type: Optional[str] = None  # None disables routing, general, breaking, background
     limit: int = 10
 
     # TODO to avoid filter bubble
