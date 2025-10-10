@@ -102,6 +102,13 @@ class ApprovalConfig:
     # Lets strong evidence/coherence still surface for review rather than auto-reject.
     w_penalties_dup_safety: float = -0.20  # max of (dup penalty, safety penalty)
 
+    # Evidence fetch/extraction knobs
+    fetch_timeout_s: float = 6.0
+    fetch_retries: int = 1
+    fetch_max_redirects: int = 3
+    min_extract_length: int = 200
+    min_coherence_length: int = 200
+
 
 @dataclass
 class EmbeddingModelConfig:

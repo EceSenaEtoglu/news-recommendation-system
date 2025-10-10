@@ -12,6 +12,8 @@ from ..embeddings import EmbeddingSystem
 from ..config import ApprovalConfig, JOURNALIST_DEFAULT_CREDIBILITY
 
 from langgraph.graph import StateGraph, END
+from concurrent.futures import ThreadPoolExecutor
+from ..utils.content_extract import fetch_and_extract
 
 
 
@@ -205,23 +207,16 @@ def n_schema_validate(state: AgentState, cfg: ApprovalConfig) -> AgentState:
 
 def n_fetch_evidence(state: AgentState, cfg: ApprovalConfig) -> AgentState:
     sub = state.submission
-    description: Optional[str] = sub.get("description")
-    evidence_urls: List[str] = []
-    try:
-        evidence_urls = json.loads(sub.get("evidence_urls") or "[]")
-    except Exception:
-        pass
+    evidence_urls: List[str] = sub.evidence_urls or []
     outcomes: List[Dict] = []
-    for u in evidence_urls:
-        outcomes.append({
-            "url": u,
-            "status_code": None,
-            "extracted_length": 600,
-            "language": None,
-            "published_time": None,
-            "boilerplate_ratio": 0.2,
-            "extracted_text": description or ""
-        })
+    if evidence_urls:
+        with ThreadPoolExecutor(max_workers=min(4, len(evidence_urls))) as ex:
+            futs = [ex.submit(fetch_and_extract, u, timeout=cfg.fetch_timeout_s, retries=cfg.fetch_retries, max_redirects=cfg.fetch_max_redirects) for u in evidence_urls]
+            for f in futs:
+                try:
+                    outcomes.append(f.result())
+                except Exception as e:
+                    outcomes.append({"url": "", "status_code": None, "extracted_text": "", "error": str(e), "extracted_length": 0, "boilerplate_ratio": 1.0, "num_links": 0.0})
     state.signals["evidence_fetch"] = outcomes
     return state
 
@@ -239,7 +234,7 @@ def n_synthesize(state: AgentState, cfg: ApprovalConfig) -> AgentState:
 
 def n_signals(state: AgentState, cfg: ApprovalConfig) -> AgentState:
     sub = state.submission
-    submitted_title: str = (sub.get("submitted_title") or "").strip()
+    submitted_title: str = (sub.submitted_title or "").strip()
     outcomes: List[Dict] = state.signals.get("evidence_fetch", [])
     state.signals["evidence_quality"] = _compute_evidence_quality(outcomes)
     state.signals["cross_evidence_coherence"] = _compute_coherence_stub(outcomes)
