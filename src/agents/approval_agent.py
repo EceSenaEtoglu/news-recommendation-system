@@ -7,7 +7,7 @@ from typing import Dict, List, Optional, Tuple
 from datetime import datetime, timezone
 
 from ..storage import ArticleDB
-from ..data_models import Article, Source, SourceCategory, ContentType, SubmissionStatus, DecisionType
+from ..data_models import Article, Source, SourceCategory, ContentType, SubmissionStatus, DecisionType, ArticleProvenance, SubmissionModel
 from ..embeddings import EmbeddingSystem
 from ..config import ApprovalConfig, JOURNALIST_DEFAULT_CREDIBILITY
 
@@ -29,7 +29,7 @@ class ApprovalOutcome:
 
 @dataclass
 class AgentState:
-    submission: Dict
+    submission: SubmissionModel
     signals: Dict
     blockers: List[str]
     reasons: List[str]
@@ -45,10 +45,9 @@ def apply_reviewer_decision(db: ArticleDB,
                             *,
                             final_title: Optional[str] = None,
                             notes: Optional[str] = None) -> bool:
-    """Apply a human reviewer decision for a submission in needs_review.
+    """Apply a human reviewer decision for a submission in JEEDS_REVIEW"""
 
-    decision: 'approve' | 'reject' | 'request_more_evidence'
-    """
+  
     sub = db.get_submission(submission_id)
     if not sub:
         return False
@@ -58,13 +57,9 @@ def apply_reviewer_decision(db: ArticleDB,
 
     if decision == "approve":
         # Promote to Article with reviewer decision
-        submitted_title: str = (sub.get("submitted_title") or "").strip()
+        submitted_title: str = (sub.submitted_title or "").strip()
         title = (final_title or submitted_title or ("Journalist Report " + submission_id[:8]))
-        evidence_urls: List[str] = []
-        try:
-            evidence_urls = json.loads(sub.get("evidence_urls") or "[]")
-        except Exception:
-            pass
+        evidence_urls: List[str] = sub.evidence_urls or []
 
         src = Source(
             id="journalist",
@@ -76,24 +71,24 @@ def apply_reviewer_decision(db: ArticleDB,
         article = Article(
             id=str(uuid.uuid4()),
             title=title,
-            content=(sub.get("synthesized_content") or ""),
-            description=sub.get("description"),
+            content=(sub.synthesized_content or ""),
+            description=sub.description,
             url="#",
             source=src,
             published_at=datetime.now(timezone.utc),
             content_type=ContentType.FACTUAL,
+            provenance_source=ArticleProvenance.JOURNALIST_REPORT,
+            decision_type=DecisionType.REVIEWED,
+            evidence_urls=evidence_urls,
         )
-        setattr(article, "provenance_source", "journalist_report")
-        setattr(article, "decision_type", DecisionType.REVIEWED.value)
-        setattr(article, "evidence_urls", evidence_urls)
         ok = db.save_article(article)
         db.update_submission_decision(
             submission_id,
             status=SubmissionStatus.APPROVED.value,
             decision_type=DecisionType.REVIEWED.value,
-            validity_score=sub.get("validity_score"),
-            reasons=json.loads(sub.get("reasons") or "[]") if isinstance(sub.get("reasons"), str) else (sub.get("reasons") or []),
-            blockers=json.loads(sub.get("blockers") or "[]") if isinstance(sub.get("blockers"), str) else (sub.get("blockers") or []),
+            validity_score=sub.validity_score,
+            reasons=sub.reasons,
+            blockers=sub.blockers,
             decided_at_iso=datetime.now(timezone.utc).isoformat(),
         )
         return ok
@@ -103,9 +98,9 @@ def apply_reviewer_decision(db: ArticleDB,
             submission_id,
             status=SubmissionStatus.REJECTED.value,
             decision_type=None,
-            validity_score=sub.get("validity_score"),
-            reasons=json.loads(sub.get("reasons") or "[]") if isinstance(sub.get("reasons"), str) else (sub.get("reasons") or []),
-            blockers=json.loads(sub.get("blockers") or "[]") if isinstance(sub.get("blockers"), str) else (sub.get("blockers") or []),
+            validity_score=sub.validity_score,
+            reasons=sub.reasons,
+            blockers=sub.blockers,
             decided_at_iso=datetime.now(timezone.utc).isoformat(),
         )
 
@@ -114,9 +109,9 @@ def apply_reviewer_decision(db: ArticleDB,
             submission_id,
             status=SubmissionStatus.PENDING.value,
             decision_type=None,
-            validity_score=sub.get("validity_score"),
-            reasons=json.loads(sub.get("reasons") or "[]") if isinstance(sub.get("reasons"), str) else (sub.get("reasons") or []),
-            blockers=json.loads(sub.get("blockers") or "[]") if isinstance(sub.get("blockers"), str) else (sub.get("blockers") or []),
+            validity_score=sub.validity_score,
+            reasons=sub.reasons,
+            blockers=sub.blockers,
             decided_at_iso=datetime.now(timezone.utc).isoformat(),
         )
 
@@ -323,10 +318,10 @@ def n_promote_if_auto(state: AgentState, db: ArticleDB) -> AgentState:
         source=src,
         published_at=datetime.now(timezone.utc),
         content_type=ContentType.FACTUAL,
+        provenance_source=ArticleProvenance.JOURNALIST_REPORT,
+        decision_type=DecisionType.AUTO_APPROVED,
+        evidence_urls=evidence_urls,
     )
-    setattr(article, "provenance_source", "journalist_report")
-    setattr(article, "decision_type", DecisionType.AUTO_APPROVED.value)
-    setattr(article, "evidence_urls", evidence_urls)
     db.save_article(article)
     return state
 
@@ -407,7 +402,7 @@ def run_approval_agent(db: ArticleDB, embeddings: EmbeddingSystem, submission_id
     # Persist submission decision and set review token if needed
     db.update_submission_decision(
         submission_id,
-        status=(state.status or SubmissionStatus.REJECTED).value,
+        status=(state.status or SubmissionStatus.REJECTED).value,  # default to rejected
         decision_type=(state.decision_type.value if state.decision_type else None),
         validity_score=state.validity_score,
         reasons=state.reasons,
@@ -422,10 +417,10 @@ def run_approval_agent(db: ArticleDB, embeddings: EmbeddingSystem, submission_id
         token = str(uuid.uuid4())
         db.set_submission_review_token(submission_id, token)
 
-    submitted_title: str = (state.submission.get("submitted_title") or "").strip()
+    submitted_title: str = (state.submission.submitted_title or "").strip()
     return ApprovalOutcome(
-        status=(state.status or SubmissionStatus.REJECTED).value,
-        decision_type=(state.decision_type.value if state.decision_type else None),
+        status=(state.status or SubmissionStatus.REJECTED),  # default to rejected
+        decision_type=(state.decision_type if state.decision_type else None),
         validity_score=state.validity_score,
         reasons=state.reasons,
         blockers=state.blockers,
