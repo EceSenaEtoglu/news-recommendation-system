@@ -16,25 +16,38 @@ from src.summarization import summarize_article
 
 def simple_summarize(article: Article, max_sentences: int = 3) -> str:
     """Enhanced summarization using transformer model with fallback"""
+    print(f"DEBUG: Starting summarization for article: {article.id}")
+    print(f"DEBUG: Article content length: {len(getattr(article, 'content', '') or '')}")
+    
     if not getattr(article, "content", None) or not isinstance(article.content, str):
+        print("DEBUG: No content found, using description/title")
         return (getattr(article, "description", "") or article.title)[:350]
     
     # Use the new summarization model
     try:
+        print("DEBUG: Attempting transformer summarization...")
         summary = summarize_article(
             content=article.content,
             title=article.title,
             max_length=300
         )
+        print(f"DEBUG: Transformer summarization successful, length: {len(summary)}")
         return summary
     except Exception as e:
         # Fallback to simple extractive summarization
-        print(f"Summarization failed: {e}")
-        sentences = article.content.split(". ")
-        summary = ". ".join(sentences[:max_sentences])
-        if not summary.endswith("."):
-            summary += "."
-        return summary
+        print(f"DEBUG: Transformer summarization failed: {e}")
+        print(f"DEBUG: Exception type: {type(e)}")
+        try:
+            print("DEBUG: Attempting extractive summarization...")
+            sentences = article.content.split(". ")
+            summary = ". ".join(sentences[:max_sentences])
+            if not summary.endswith("."):
+                summary += "."
+            print(f"DEBUG: Extractive summarization successful, length: {len(summary)}")
+            return summary
+        except Exception as e2:
+            print(f"DEBUG: Extractive summarization also failed: {e2}")
+            return f"Summary unavailable. {article.title[:100]}..."
 
 
 # TODO, for the uknown category a category extraction model can be used
@@ -374,7 +387,12 @@ def render_saved_article_card(article: Article, idx: int):
 
         # Conditional Summary Display
         if st.session_state.get("summarize_id") == article.id:
-            st.caption(simple_summarize(article))
+            try:
+                summary = simple_summarize(article)
+                st.caption(summary)
+            except Exception as e:
+                st.error(f"Failed to generate summary: {e}")
+                st.caption("Summary unavailable.")
             st.divider()
             c1, c2 = st.columns(2)
             c1.link_button("Read →", article.url, use_container_width=True)
@@ -386,8 +404,11 @@ def render_saved_article_card(article: Article, idx: int):
             c1, c2, c3 = st.columns(3)
             c1.link_button("Read →", article.url, use_container_width=True)
             if c2.button("📝 Summarize", key=f"summ_btn_{unique_id}", use_container_width=True):
-                st.session_state.summarize_id = article.id
-                st.rerun()
+                try:
+                    st.session_state.summarize_id = article.id
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Failed to start summarization: {e}")
             if c3.button("🗑️ Remove", key=f"remove_btn_{unique_id}", use_container_width=True):
                 st.session_state.news_basket = [x for x in st.session_state.news_basket if x["id"] != article.id]
                 st.rerun()
