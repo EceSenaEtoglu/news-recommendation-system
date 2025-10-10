@@ -109,6 +109,8 @@ class ArticleDB:
                 
                 status TEXT NOT NULL, -- 'pending' | 'auto_approved' | 'approved' | 'rejected' | 'needs_review'
                 decision_type TEXT, -- 'auto_approved' | 'reviewed'
+                review_token TEXT,
+                review_notes TEXT,
                 
                 created_at TEXT NOT NULL,
                 decided_at TEXT
@@ -127,6 +129,24 @@ class ArticleDB:
             )
             """)
 
+            conn.commit()
+        finally:
+            conn.close()
+
+        # Best-effort schema migrations for new columns
+        conn = sqlite3.connect(self.db_path)
+        try:
+            for sql in [
+                "ALTER TABLE submissions ADD COLUMN review_token TEXT",
+                "ALTER TABLE submissions ADD COLUMN review_notes TEXT",
+                "ALTER TABLE articles ADD COLUMN provenance_source TEXT",
+                "ALTER TABLE articles ADD COLUMN decision_type TEXT",
+                "ALTER TABLE articles ADD COLUMN evidence_urls TEXT",
+            ]:
+                try:
+                    conn.execute(sql)
+                except Exception:
+                    pass
             conn.commit()
         finally:
             conn.close()
@@ -434,6 +454,42 @@ class ArticleDB:
         try:
             row = conn.execute("SELECT * FROM submissions WHERE id = ?", (submission_id,)).fetchone()
             return dict(row) if row else None
+        finally:
+            conn.close()
+
+    def get_submissions_by_status(self, status: str, limit: int = 50) -> list[dict]:
+        conn = sqlite3.connect(self.db_path)
+        conn.row_factory = sqlite3.Row
+        try:
+            rows = conn.execute(
+                "SELECT * FROM submissions WHERE status = ? ORDER BY created_at ASC LIMIT ?",
+                (status, limit)
+            ).fetchall()
+            return [dict(r) for r in rows]
+        finally:
+            conn.close()
+
+    def set_submission_review_token(self, submission_id: str, review_token: str) -> bool:
+        conn = sqlite3.connect(self.db_path)
+        try:
+            conn.execute("UPDATE submissions SET review_token = ? WHERE id = ?", (review_token, submission_id))
+            conn.commit()
+            return True
+        except Exception as e:
+            print(f"Error setting review token: {e}")
+            return False
+        finally:
+            conn.close()
+
+    def set_submission_review_notes(self, submission_id: str, notes: str) -> bool:
+        conn = sqlite3.connect(self.db_path)
+        try:
+            conn.execute("UPDATE submissions SET review_notes = ? WHERE id = ?", (notes, submission_id))
+            conn.commit()
+            return True
+        except Exception as e:
+            print(f"Error setting review notes: {e}")
+            return False
         finally:
             conn.close()
 
