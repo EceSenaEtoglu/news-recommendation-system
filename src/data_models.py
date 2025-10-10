@@ -18,6 +18,24 @@ class SourceCategory(Enum):
     SCIENCE = "science"
     POLITICS = "politics"
     GENERAL = "general"
+class SubmissionStatus(Enum):
+    PENDING = "pending"
+    AUTO_APPROVED = "auto_approved"
+    APPROVED = "approved"
+    REJECTED = "rejected"
+    NEEDS_REVIEW = "needs_review"
+
+
+class DecisionType(Enum):
+    AUTO_APPROVED = "auto_approved"
+    REVIEWED = "reviewed"
+
+
+class ArticleProvenance(Enum):
+    SCRAPED = "scraped"
+    JOURNALIST_REPORT = "journalist_report"
+    JOURNALIST_ARTICLE = "journalist_article"
+
 
 
 @dataclass
@@ -57,6 +75,11 @@ class Article:
     entities: List[tuple[str, str, int]] = field(default_factory=list)  # (name, type, count)
     topics: List[str] = field(default_factory=list)
     created_at: datetime = field(default_factory=datetime.now)
+
+    # Agentic provenance (optional; populated for journalist reports)
+    provenance_source: Optional[ArticleProvenance] = None
+    decision_type: Optional[DecisionType] = None
+    evidence_urls: List[str] = field(default_factory=list)
     
     # called automatically after the object is created
     def __post_init__(self):

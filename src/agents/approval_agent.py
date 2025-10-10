@@ -7,9 +7,9 @@ from typing import Dict, List, Optional, Tuple
 from datetime import datetime, timezone
 
 from ..storage import ArticleDB
-from ..data_models import Article, Source, SourceCategory, ContentType
+from ..data_models import Article, Source, SourceCategory, ContentType, SubmissionStatus, DecisionType
 from ..embeddings import EmbeddingSystem
-from ..config import ApprovalConfig
+from ..config import ApprovalConfig, JOURNALIST_DEFAULT_CREDIBILITY
 
 from langgraph.graph import StateGraph, END
 
@@ -17,8 +17,8 @@ from langgraph.graph import StateGraph, END
 
 @dataclass
 class ApprovalOutcome:
-    status: str  # 'auto_approved' | 'approved' | 'rejected' | 'needs_review'
-    decision_type: Optional[str]  # 'auto_approved' | 'reviewed' | None
+    status: SubmissionStatus
+    decision_type: Optional[DecisionType]
     validity_score: float
     reasons: List[str]
     blockers: List[str]
@@ -35,8 +35,8 @@ class AgentState:
     reasons: List[str]
     synthesized_content: str
     validity_score: float
-    status: Optional[str]
-    decision_type: Optional[str]
+    status: Optional[SubmissionStatus]
+    decision_type: Optional[DecisionType]
 
 
 def apply_reviewer_decision(db: ArticleDB,
@@ -71,7 +71,7 @@ def apply_reviewer_decision(db: ArticleDB,
             name="Journalist Report",
             url="",
             category=SourceCategory.GENERAL,
-            credibility_score=0.7,
+            credibility_score=JOURNALIST_DEFAULT_CREDIBILITY,
         )
         article = Article(
             id=str(uuid.uuid4()),
@@ -84,13 +84,13 @@ def apply_reviewer_decision(db: ArticleDB,
             content_type=ContentType.FACTUAL,
         )
         setattr(article, "provenance_source", "journalist_report")
-        setattr(article, "decision_type", "reviewed")
+        setattr(article, "decision_type", DecisionType.REVIEWED.value)
         setattr(article, "evidence_urls", evidence_urls)
         ok = db.save_article(article)
         db.update_submission_decision(
             submission_id,
-            status="approved",
-            decision_type="reviewed",
+            status=SubmissionStatus.APPROVED.value,
+            decision_type=DecisionType.REVIEWED.value,
             validity_score=sub.get("validity_score"),
             reasons=json.loads(sub.get("reasons") or "[]") if isinstance(sub.get("reasons"), str) else (sub.get("reasons") or []),
             blockers=json.loads(sub.get("blockers") or "[]") if isinstance(sub.get("blockers"), str) else (sub.get("blockers") or []),
@@ -101,7 +101,7 @@ def apply_reviewer_decision(db: ArticleDB,
     if decision == "reject":
         return db.update_submission_decision(
             submission_id,
-            status="rejected",
+            status=SubmissionStatus.REJECTED.value,
             decision_type=None,
             validity_score=sub.get("validity_score"),
             reasons=json.loads(sub.get("reasons") or "[]") if isinstance(sub.get("reasons"), str) else (sub.get("reasons") or []),
@@ -112,7 +112,7 @@ def apply_reviewer_decision(db: ArticleDB,
     if decision == "request_more_evidence":
         return db.update_submission_decision(
             submission_id,
-            status="pending",
+            status=SubmissionStatus.PENDING.value,
             decision_type=None,
             validity_score=sub.get("validity_score"),
             reasons=json.loads(sub.get("reasons") or "[]") if isinstance(sub.get("reasons"), str) else (sub.get("reasons") or []),
@@ -127,6 +127,7 @@ def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+# TODO? do a semantic check
 def _basic_title_consistency(submitted_title: Optional[str], synthesized_content: str) -> float:
     if not submitted_title or not synthesized_content:
         return 0.0
@@ -281,22 +282,22 @@ def n_score_and_decide(state: AgentState, cfg: ApprovalConfig) -> AgentState:
         state.reasons.append("-near_duplicate")
 
     if state.blockers:
-        state.status = "rejected"
+        state.status = SubmissionStatus.REJECTED
         state.decision_type = None
     elif state.validity_score >= cfg.tau_auto:
-        state.status = "auto_approved"
-        state.decision_type = "auto_approved"
+        state.status = SubmissionStatus.AUTO_APPROVED
+        state.decision_type = DecisionType.AUTO_APPROVED
     elif state.validity_score >= cfg.tau_review:
-        state.status = "needs_review"
+        state.status = SubmissionStatus.NEEDS_REVIEW
         state.decision_type = None
     else:
-        state.status = "rejected"
+        state.status = SubmissionStatus.REJECTED
         state.decision_type = None
     return state
 
 
 def n_promote_if_auto(state: AgentState, db: ArticleDB) -> AgentState:
-    if state.status != "auto_approved":
+    if state.status != SubmissionStatus.AUTO_APPROVED:
         return state
     sub = state.submission
     submitted_title: str = (sub.get("submitted_title") or "").strip()
@@ -311,7 +312,7 @@ def n_promote_if_auto(state: AgentState, db: ArticleDB) -> AgentState:
         name="Journalist Report",
         url="",
         category=SourceCategory.GENERAL,
-        credibility_score=0.7,
+        credibility_score=JOURNALIST_DEFAULT_CREDIBILITY,
     )
     article = Article(
         id=article_id,
@@ -324,7 +325,7 @@ def n_promote_if_auto(state: AgentState, db: ArticleDB) -> AgentState:
         content_type=ContentType.FACTUAL,
     )
     setattr(article, "provenance_source", "journalist_report")
-    setattr(article, "decision_type", "auto_approved")
+    setattr(article, "decision_type", DecisionType.AUTO_APPROVED.value)
     setattr(article, "evidence_urls", evidence_urls)
     db.save_article(article)
     return state
@@ -406,8 +407,8 @@ def run_approval_agent(db: ArticleDB, embeddings: EmbeddingSystem, submission_id
     # Persist submission decision and set review token if needed
     db.update_submission_decision(
         submission_id,
-        status=state.status or "rejected",
-        decision_type=state.decision_type,
+        status=(state.status or SubmissionStatus.REJECTED).value,
+        decision_type=(state.decision_type.value if state.decision_type else None),
         validity_score=state.validity_score,
         reasons=state.reasons,
         blockers=state.blockers,
@@ -417,14 +418,14 @@ def run_approval_agent(db: ArticleDB, embeddings: EmbeddingSystem, submission_id
         decided_at_iso=_now_iso(),
     )
 
-    if state.status == "needs_review":
+    if state.status == SubmissionStatus.NEEDS_REVIEW:
         token = str(uuid.uuid4())
         db.set_submission_review_token(submission_id, token)
 
     submitted_title: str = (state.submission.get("submitted_title") or "").strip()
     return ApprovalOutcome(
-        status=state.status or "rejected",
-        decision_type=state.decision_type,
+        status=(state.status or SubmissionStatus.REJECTED).value,
+        decision_type=(state.decision_type.value if state.decision_type else None),
         validity_score=state.validity_score,
         reasons=state.reasons,
         blockers=state.blockers,

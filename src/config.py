@@ -19,6 +19,9 @@ from typing import Optional
 MAX_ENTITIES_PER_ARTICLE: int = 10
 MAX_TOPICS_PER_ARTICLE: int = 10
 
+# Default credibility score used for journalist-submitted reports (MVP)
+JOURNALIST_DEFAULT_CREDIBILITY: float = 0.7
+
 
 @dataclass
 class RAGConfig:
@@ -89,11 +92,14 @@ class ApprovalConfig:
     tau_dup: float = 0.95           # exact duplicate hard block
     tau_title_align: float = 0.75   # accept submitted title if aligned
 
-    # weights (sum of positives ~0.90; penalties applied as max of dup/safety)
+    # weights (sum of positives = 0.90)
+    # final score ≈ positives_sum + (−0.20 × max(dup_penalty, safety_penalty)).
     w_evidence_quality: float = 0.35    # count, extraction length, domain diversity
     w_coherence: float = 0.25           # avg pairwise cosine across evidence
     w_title_consistency: float = 0.15   # submitted vs synthesized
     w_content_quality: float = 0.15     # length, boilerplate, language
+
+    # Lets strong evidence/coherence still surface for review rather than auto-reject.
     w_penalties_dup_safety: float = -0.20  # max of (dup penalty, safety penalty)
 
 
