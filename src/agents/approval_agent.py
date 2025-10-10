@@ -2,22 +2,21 @@ from __future__ import annotations
 
 import json
 import uuid
+import re
 from dataclasses import dataclass
 from typing import Dict, List, Optional, Tuple
 from datetime import datetime, timezone
+from concurrent.futures import ThreadPoolExecutor
+from collections import defaultdict
+
+import numpy as np
+from langgraph.graph import StateGraph, END
 
 from ..storage import ArticleDB
 from ..data_models import Article, Source, SourceCategory, ContentType, SubmissionStatus, DecisionType, ArticleProvenance, SubmissionModel
 from ..embeddings import EmbeddingSystem
-from ..config import ApprovalConfig, JOURNALIST_DEFAULT_CREDIBILITY
-
-from langgraph.graph import StateGraph, END
-from concurrent.futures import ThreadPoolExecutor
+from ..config import ApprovalConfig, JOURNALIST_DEFAULT_CREDIBILITY, LLMConfig
 from ..utils.content_extract import fetch_and_extract
-import numpy as np
-from collections import defaultdict
-
-
 
 @dataclass
 class ApprovalOutcome:
@@ -54,8 +53,6 @@ def apply_reviewer_decision(db: ArticleDB,
                             final_title: Optional[str] = None,
                             notes: Optional[str] = None) -> bool:
     """Apply a human reviewer decision for a submission in JEEDS_REVIEW"""
-
-  
     sub = db.get_submission(submission_id)
     if not sub:
         return False
@@ -130,7 +127,6 @@ def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-# TODO? do a semantic check
 def _basic_title_consistency(submitted_title: Optional[str], synthesized_content: str) -> float:
     if not submitted_title or not synthesized_content:
         return 0.0
@@ -148,10 +144,10 @@ def _basic_title_consistency(submitted_title: Optional[str], synthesized_content
     return min(1.0, max(0.0, overlap))
 
 
-def _compute_evidence_quality(evidence_fetch_outcomes: List[Dict]) -> float:
+def _compute_evidence_quality(evidence_fetch_outcomes: List[Dict], cfg: ApprovalConfig) -> float:
     if not evidence_fetch_outcomes:
         return 0.0
-    usable = [e for e in evidence_fetch_outcomes if (e.get("extracted_length", 0) or 0) >= 300]
+    usable = [e for e in evidence_fetch_outcomes if (e.get("extracted_length", 0) or 0) >= cfg.min_extract_length]
     if not usable:
         return 0.0
     score = 0.5 if len(usable) >= 1 else 0.0
@@ -162,8 +158,8 @@ def _compute_evidence_quality(evidence_fetch_outcomes: List[Dict]) -> float:
     return score
 
 
-def _compute_coherence_stub(evidence_fetch_outcomes: List[Dict]) -> float:
-    usable = [e for e in evidence_fetch_outcomes if (e.get("extracted_length", 0) or 0) >= 300]
+def _compute_coherence_stub(evidence_fetch_outcomes: List[Dict], cfg: ApprovalConfig) -> float:
+    usable = [e for e in evidence_fetch_outcomes if (e.get("extracted_length", 0) or 0) >= cfg.min_extract_length]
     if len(usable) >= 2:
         return 0.6
     return 0.0
@@ -312,32 +308,104 @@ def _compute_title_alignment(submitted_title: str, extracted_title: Optional[str
     return min(1.0, jaccard * 2)  # Scale up for better scoring
 
 
-def _llm_content_analysis(content: str, evidence_texts: List[str]) -> Dict:
-    """Simulate LLM-based content analysis and fact-checking."""
+
+def _llm_content_analysis(content: str, evidence_texts: List[str], embeddings: EmbeddingSystem, llm_config: Optional[LLMConfig] = None) -> Dict:
+    """Perform actual LLM-based content analysis and fact-checking."""
     if not content or not evidence_texts:
         return {"fact_check_score": 0.0, "contradictions": [], "synthesis_quality": 0.0}
     
-    # Simulate fact-checking by looking for contradictions
     contradictions = []
     fact_check_score = 0.8  # Base score
     
-    # Simple heuristic: check for conflicting numbers, dates, or key facts
-    content_lower = content.lower()
-    for evidence in evidence_texts:
-        evidence_lower = evidence.lower()
+    try:
+        # Use Hugging Face Transformers directly
+        from transformers import AutoTokenizer, AutoModelForCausalLM
+        import torch
         
-        # Look for conflicting numbers (simplified)
-        import re
-        content_numbers = re.findall(r'\d+', content_lower)
-        evidence_numbers = re.findall(r'\d+', evidence_lower)
+        # Use provided config or default
+        if llm_config is None:
+            from src.config import LLMConfig
+            llm_config = LLMConfig()
         
-        # If same context but different numbers, potential contradiction
-        if len(content_numbers) > 0 and len(evidence_numbers) > 0:
-            if any(num in evidence_numbers for num in content_numbers):
-                fact_check_score = min(fact_check_score, 0.6)
-    
-    # Simulate synthesis quality based on content length and evidence coverage
-    synthesis_quality = min(1.0, len(content) / 1000.0) if content else 0.0
+        # Load model and tokenizer (cached after first use)
+        model_name = llm_config.model_name
+        tokenizer = AutoTokenizer.from_pretrained(model_name)
+        
+        # Set pad token if not available
+        if tokenizer.pad_token is None:
+            tokenizer.pad_token = tokenizer.eos_token
+            
+        model = AutoModelForCausalLM.from_pretrained(
+            model_name,
+            torch_dtype=torch.float16 if torch.cuda.is_available() else torch.float32,
+            device_map="auto" if torch.cuda.is_available() else None
+        )
+        
+        # Prepare evidence context
+        evidence_context = "\n\n".join([f"Evidence {i+1}: {text[:500]}" for i, text in enumerate(evidence_texts[:3])])
+        
+        # Fact-checking prompt
+        fact_check_prompt = f"""
+        Analyze the following synthesized content for factual accuracy against the provided evidence.
+        
+        SYNTHESIZED CONTENT:
+        {content[:1500]}
+        
+        EVIDENCE:
+        {evidence_context}
+        
+        Please provide:
+        1. A fact-check score (0.0-1.0) based on how well the content aligns with the evidence
+        2. Any contradictions or inconsistencies you find
+        3. A synthesis quality score (0.0-1.0) based on how well the content synthesizes the evidence
+        
+        Respond in JSON format:
+        {{
+            "fact_check_score": 0.8,
+            "contradictions": ["specific contradiction 1", "specific contradiction 2"],
+            "synthesis_quality": 0.7,
+            "reasoning": "brief explanation"
+        }}
+        """
+        
+        # Tokenize and generate
+        inputs = tokenizer(fact_check_prompt, return_tensors="pt", truncation=True, max_length=2048)
+        
+        with torch.no_grad():
+            outputs = model.generate(
+                **inputs,
+                max_new_tokens=llm_config.max_tokens,
+                temperature=llm_config.temperature,
+                do_sample=True,
+                pad_token_id=tokenizer.eos_token_id
+            )
+        
+        # Decode response
+        llm_response = tokenizer.decode(outputs[0][inputs['input_ids'].shape[1]:], skip_special_tokens=True)
+        
+        # Try to extract JSON from the response
+        json_match = re.search(r'\{.*\}', llm_response, re.DOTALL)
+        if json_match:
+            parsed_result = json.loads(json_match.group())
+            fact_check_score = float(parsed_result.get("fact_check_score", 0.5))
+            contradictions = parsed_result.get("contradictions", [])
+            synthesis_quality = float(parsed_result.get("synthesis_quality", 0.5))
+        else:
+            # Fallback parsing
+            fact_check_score = 0.5
+            synthesis_quality = 0.5
+            contradictions = ["Failed to parse LLM response"]
+        
+    except ImportError:
+        # Fallback if transformers not available
+        contradictions.append("Transformers not available - using fallback")
+        fact_check_score = 0.6
+        synthesis_quality = _calculate_synthesis_quality(content, evidence_texts)
+        
+    except Exception as e:
+        contradictions.append(f"LLM analysis error: {str(e)}")
+        fact_check_score = 0.3
+        synthesis_quality = _calculate_synthesis_quality(content, evidence_texts)
     
     return {
         "fact_check_score": fact_check_score,
@@ -345,6 +413,35 @@ def _llm_content_analysis(content: str, evidence_texts: List[str]) -> Dict:
         "synthesis_quality": synthesis_quality,
         "confidence": fact_check_score * synthesis_quality
     }
+
+
+def _calculate_synthesis_quality(content: str, evidence_texts: List[str]) -> float:
+    """Calculate synthesis quality based on content structure and evidence coverage."""
+    if not content:
+        return 0.0
+    
+    # Base quality from content length and structure
+    content_length = len(content.strip())
+    length_score = min(1.0, content_length / 1000.0)
+    
+    # Check for good structure (paragraphs, sentences)
+    import re
+    sentences = len(re.findall(r'[.!?]+', content))
+    paragraphs = len(content.split('\n\n'))
+    
+    structure_score = min(1.0, sentences / 10.0)  # Expect at least 10 sentences
+    
+    # Evidence coverage score
+    evidence_coverage = min(1.0, len(evidence_texts) / 3.0)  # Expect 3+ evidence sources
+    
+    # Combine scores
+    synthesis_quality = (
+        0.4 * length_score +
+        0.3 * structure_score +
+        0.3 * evidence_coverage
+    )
+    
+    return min(1.0, max(0.0, synthesis_quality))
 
 
 def _adaptive_threshold_calculation(db: ArticleDB, submission_type: str = "journalist_report") -> Dict:
@@ -429,10 +526,35 @@ def n_schema_validate(state: AgentState, cfg: ApprovalConfig) -> AgentState:
     evidence_urls = sub.evidence_urls or []
     content_raw = sub.content_raw or ""
     
+    # Validate title
     if not submitted_title:
         state.blockers.append("missing_title")
+    elif len(submitted_title) < 10:
+        state.blockers.append("title_too_short")
+    elif len(submitted_title) > 200:
+        state.blockers.append("title_too_long")
+    
+    # Validate evidence URLs
+    if evidence_urls:
+        url_pattern = re.compile(
+            r'^https?://'  # http:// or https://
+            r'(?:(?:[A-Z0-9](?:[A-Z0-9-]{0,61}[A-Z0-9])?\.)+[A-Z]{2,6}\.?|'  # domain...
+            r'localhost|'  # localhost...
+            r'\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})'  # ...or ip
+            r'(?::\d+)?'  # optional port
+            r'(?:/?|[/?]\S+)$', re.IGNORECASE)
+        
+        invalid_urls = [url for url in evidence_urls if not url_pattern.match(url)]
+        if invalid_urls:
+            state.blockers.append("invalid_urls")
+            state.reasons.append(f"Invalid URLs: {invalid_urls}")
+    
+    # Validate content
     if not evidence_urls and not content_raw.strip():
         state.blockers.append("no_evidence_and_no_content")
+    elif content_raw and len(content_raw.strip()) < 50:
+        state.blockers.append("content_too_short")
+    
     return state
 
 # run the text extraction for the evidence urls in parallel
@@ -441,14 +563,34 @@ def n_fetch_evidence(state: AgentState, cfg: ApprovalConfig) -> AgentState:
     sub = state.submission
     evidence_urls: List[str] = sub.evidence_urls or []
     outcomes: List[Dict] = []
+    
     if evidence_urls:
-        with ThreadPoolExecutor(max_workers=min(4, len(evidence_urls))) as ex:
-            futs = [ex.submit(fetch_and_extract, u, timeout=cfg.fetch_timeout_s, retries=cfg.fetch_retries, max_redirects=cfg.fetch_max_redirects) for u in evidence_urls]
-            for f in futs:
-                try:
-                    outcomes.append(f.result())
-                except Exception as e:
-                    outcomes.append({"url": "", "status_code": None, "extracted_text": "", "error": str(e), "extracted_length": 0, "boilerplate_ratio": 1.0, "num_links": 0.0})
+        try:
+            with ThreadPoolExecutor(max_workers=min(4, len(evidence_urls))) as ex:
+                futs = [ex.submit(fetch_and_extract, u, timeout=cfg.fetch_timeout_s, retries=cfg.fetch_retries, max_redirects=cfg.fetch_max_redirects) for u in evidence_urls]
+                for i, f in enumerate(futs):
+                    try:
+                        result = f.result(timeout=cfg.fetch_timeout_s + 5)  # Add buffer
+                        outcomes.append(result)
+                    except Exception as e:
+                        # Include the original URL in error
+                        original_url = evidence_urls[i] if i < len(evidence_urls) else "unknown"
+                        outcomes.append({
+                            "url": original_url,
+                            "status_code": None,
+                            "extracted_text": "",
+                            "error": str(e),
+                            "extracted_length": 0,
+                            "boilerplate_ratio": 1.0,
+                            "num_links": 0.0,
+                            "extractor_used": "error"
+                        })
+                        print(f"Error fetching evidence from {original_url}: {e}")
+        except Exception as e:
+            print(f"Error in evidence fetching: {e}")
+            state.blockers.append("evidence_fetch_error")
+            state.reasons.append(f"Evidence fetching failed: {str(e)}")
+    
     state.signals["evidence_fetch"] = outcomes
     return state
 
@@ -470,7 +612,7 @@ def n_signals(state: AgentState, cfg: ApprovalConfig, embeddings: EmbeddingSyste
     outcomes: List[Dict] = state.signals.get("evidence_fetch", [])
     
     # Compute evidence quality
-    state.signals["evidence_quality"] = _compute_evidence_quality(outcomes)
+    state.signals["evidence_quality"] = _compute_evidence_quality(outcomes, cfg)
     
     # Compute real coherence using embeddings
     state.signals["cross_evidence_coherence"] = _compute_coherence_real(embeddings, outcomes, cfg)
@@ -486,13 +628,13 @@ def n_signals(state: AgentState, cfg: ApprovalConfig, embeddings: EmbeddingSyste
     return state
 
 
-def n_llm_analysis(state: AgentState, cfg: ApprovalConfig) -> AgentState:
+def n_llm_analysis(state: AgentState, cfg: ApprovalConfig, embeddings: EmbeddingSystem, llm_config: Optional[LLMConfig] = None) -> AgentState:
     """Perform LLM-based content analysis and fact-checking."""
     outcomes: List[Dict] = state.signals.get("evidence_fetch", [])
     evidence_texts = [e.get("extracted_text", "") for e in outcomes if e.get("extracted_text")]
     
     # Perform LLM analysis
-    llm_analysis = _llm_content_analysis(state.synthesized_content, evidence_texts)
+    llm_analysis = _llm_content_analysis(state.synthesized_content, evidence_texts, embeddings, llm_config)
     state.llm_analysis = llm_analysis
     
     # Update signals with LLM insights
@@ -658,7 +800,7 @@ def n_promote_if_auto(state: AgentState, db: ArticleDB) -> AgentState:
     return state
 
 
-def run_approval_agent(db: ArticleDB, embeddings: EmbeddingSystem, submission_id: str, config: Optional[ApprovalConfig] = None) -> ApprovalOutcome:
+def run_approval_agent(db: ArticleDB, embeddings: EmbeddingSystem, submission_id: str, config: Optional[ApprovalConfig] = None, llm_config: Optional[LLMConfig] = None) -> ApprovalOutcome:
     cfg = config or ApprovalConfig()
     sub = db.get_submission(submission_id)
     if not sub:
@@ -693,7 +835,7 @@ def run_approval_agent(db: ArticleDB, embeddings: EmbeddingSystem, submission_id
 
     def from_dict(d: dict) -> AgentState:
         return AgentState(
-            submission=d.get("submission", {}),
+            submission=d.get("submission"),  # Should always be SubmissionModel
             signals=d.get("signals", {}),
             blockers=d.get("blockers", []),
             reasons=d.get("reasons", []),
@@ -720,7 +862,7 @@ def run_approval_agent(db: ArticleDB, embeddings: EmbeddingSystem, submission_id
     g.add_node("fetch", wrap(lambda s: n_fetch_evidence(s, cfg)))
     g.add_node("synth", wrap(lambda s: n_synthesize(s, cfg)))
     g.add_node("signals", wrap(lambda s: n_signals(s, cfg, embeddings)))
-    g.add_node("llm_analysis", wrap(lambda s: n_llm_analysis(s, cfg)))
+    g.add_node("llm_analysis", wrap(lambda s: n_llm_analysis(s, cfg, embeddings, llm_config)))
     g.add_node("adaptive_thresholds", wrap(lambda s: n_adaptive_thresholds(s, cfg, db)))
     g.add_node("evidence_gate", wrap(lambda s: n_evidence_gate(s, cfg)))
     g.add_node("dedup", wrap(lambda s: n_deduplicate(s, cfg, embeddings)))
@@ -753,8 +895,17 @@ def run_approval_agent(db: ArticleDB, embeddings: EmbeddingSystem, submission_id
     g.add_edge("human_review", END)
 
     app = g.compile()
-    out_dict = app.invoke(to_dict(state))
-    state = from_dict(out_dict)
+    try:
+        out_dict = app.invoke(to_dict(state))
+        state = from_dict(out_dict)
+    except Exception as e:
+        print(f"Error during agent execution: {e}")
+        # Set error state
+        state.status = SubmissionStatus.REJECTED
+        state.decision_type = None
+        state.blockers.append("execution_error")
+        state.reasons.append(f"Agent execution failed: {str(e)}")
+        state.validity_score = 0.0
 
     # Persist submission decision and set review token if needed
     db.update_submission_decision(

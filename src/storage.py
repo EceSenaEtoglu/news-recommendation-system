@@ -497,6 +497,28 @@ class ArticleDB:
         finally:
             conn.close()
 
+    def get_recent_submission_decisions(self, limit: int = 100) -> List[Dict]:
+        """Get recent submission decisions for adaptive learning."""
+        conn = sqlite3.connect(self.db_path)
+        conn.row_factory = sqlite3.Row
+        try:
+            rows = conn.execute(
+                """
+                SELECT decision_type, validity_score, status, decided_at
+                FROM submissions 
+                WHERE decided_at IS NOT NULL
+                ORDER BY decided_at DESC 
+                LIMIT ?
+                """,
+                (limit,)
+            ).fetchall()
+            return [dict(row) for row in rows]
+        except Exception as e:
+            print(f"Error getting recent decisions: {e}")
+            return []
+        finally:
+            conn.close()
+
     def append_submission_audit(self, *, audit_id: str, submission_id: str, step: str, outcome: dict, score_delta: Optional[float], created_at_iso: str) -> bool:
         conn = sqlite3.connect(self.db_path)
         try:
