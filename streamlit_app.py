@@ -3,12 +3,17 @@ import asyncio
 import streamlit as st
 import subprocess, sys, json, pathlib
 import uuid
+from datetime import datetime, timezone
 
 # Assume src.data_models and other local modules are available in the path
 # If running this script standalone, you might need to adjust the Python path.
-from src.data_models import Article, SourceCategory
+from src.data_models import Article, SourceCategory, SubmissionModel, SubmissionStatus, DecisionType, ArticleProvenance
 from src.providers.fixture import FixtureProvider
 from scripts.demo import fetch_and_setup_data
+from src.storage import ArticleDB
+from src.embeddings import EmbeddingSystem
+from src.agents.approval_agent import run_approval_agent, apply_reviewer_decision
+from src.config import ApprovalConfig, LLMConfig
 
 # Helpers
 # Import summarization model
@@ -76,6 +81,22 @@ def get_category_badge(article: Article) -> str:
     category_lower = str(category).lower()
     color = category_colors.get(category_lower, '#E5E7EB')  # Light gray for unknown categories
     return f"<span style='background-color: {color}; color: white; padding: 2px 8px; border-radius: 12px; font-size: 12px; font-weight: 500;'>{str(category).upper()}</span>"
+
+
+def get_provenance_badge(article: Article) -> str:
+    """Get a styled provenance badge for an article"""
+    if not hasattr(article, 'provenance_source') or not article.provenance_source:
+        return ""
+    
+    provenance = article.provenance_source
+    if provenance == ArticleProvenance.JOURNALIST_REPORT:
+        return f"<span style='background-color: #10B981; color: white; padding: 2px 8px; border-radius: 12px; font-size: 12px; font-weight: 500;'>📝 JOURNALIST REPORT</span>"
+    elif provenance == ArticleProvenance.JOURNALIST_ARTICLE:
+        return f"<span style='background-color: #3B82F6; color: white; padding: 2px 8px; border-radius: 12px; font-size: 12px; font-weight: 500;'>✍️ JOURNALIST ARTICLE</span>"
+    elif provenance == ArticleProvenance.SCRAPED:
+        return f"<span style='background-color: #6B7280; color: white; padding: 2px 8px; border-radius: 12px; font-size: 12px; font-weight: 500;'>🤖 SCRAPED</span>"
+    
+    return ""
 
 
 def load_fixtures(folder: str, featured_limit: int, candidate_limit: int):
@@ -153,6 +174,11 @@ def render_article_card(article: Article, idx: int, tab_id: str, rec_type: str, 
             else:
                 meta_parts.append(str(pub_date)[:10])
         
+        # Add provenance badge if available
+        provenance_badge = get_provenance_badge(article)
+        if provenance_badge:
+            st.markdown(provenance_badge, unsafe_allow_html=True)
+        
         # Add category label if available
         category_badge = get_category_badge(article)
         if category_badge:
@@ -160,6 +186,14 @@ def render_article_card(article: Article, idx: int, tab_id: str, rec_type: str, 
         
         st.markdown(f"<p class='card-meta'>{' • '.join(meta_parts)}</p>", unsafe_allow_html=True)
         st.markdown(f"**{article.title}**")
+        
+        # Show evidence links for journalist reports
+        if hasattr(article, 'evidence_urls') and article.evidence_urls:
+            with st.expander("🔗 Evidence Links", expanded=False):
+                for i, url in enumerate(article.evidence_urls[:3]):  # Show max 3 links
+                    st.markdown(f"[Evidence {i+1}]({url})")
+                if len(article.evidence_urls) > 3:
+                    st.caption(f"... and {len(article.evidence_urls) - 3} more")
         
         st.divider()
         
@@ -538,7 +572,7 @@ def main():
             st.info("🔄 **Multi-Model**: Fusion scores (0.0-1.0+) combining multiple embedding models using weighted averaging. News-specific models get higher weights.")
 
     # --- Tab implementation using styled radio buttons ---
-    tab_cols = st.columns(3)
+    tab_cols = st.columns(5)
     with tab_cols[0]:
         if st.button("📰 Featured Articles", key="tab_featured", use_container_width=True, type="primary" if ss.active_tab == "📰 Featured Articles" else "secondary"):
             ss.active_tab = "📰 Featured Articles"; st.rerun()
@@ -548,6 +582,12 @@ def main():
     with tab_cols[2]:
         if st.button("📚 Saved Articles", key="tab_saved", use_container_width=True, type="primary" if ss.active_tab == "📚 Saved Articles" else "secondary"):
             ss.active_tab = "📚 Saved Articles"; st.rerun()
+    with tab_cols[3]:
+        if st.button("✍️ Submit News", key="tab_submit", use_container_width=True, type="primary" if ss.active_tab == "✍️ Submit News" else "secondary"):
+            ss.active_tab = "✍️ Submit News"; st.rerun()
+    with tab_cols[4]:
+        if st.button("🔍 Admin Review", key="tab_admin", use_container_width=True, type="primary" if ss.active_tab == "🔍 Admin Review" else "secondary"):
+            ss.active_tab = "🔍 Admin Review"; st.rerun()
 
     # --- Tab Content ---
     if ss.active_tab == "📰 Featured Articles":
@@ -675,6 +715,141 @@ def main():
                 if pg_cols[0].button("← Previous", key="summ_prev", disabled=ss.summ_page <= 1, use_container_width=True): ss.summ_page -= 1; st.rerun()
                 pg_cols[1].markdown(f"<div style='text-align: center; margin-top: 5px;'>Page {ss.summ_page} of {total_pages}</div>", unsafe_allow_html=True)
                 if pg_cols[2].button("Next →", key="summ_next", disabled=ss.summ_page >= total_pages, use_container_width=True): ss.summ_page += 1; st.rerun()
+
+    elif ss.active_tab == "✍️ Submit News":
+        st.markdown("### Submit News Report")
+        st.markdown("Submit a news report with evidence URLs for AI-powered validation and approval.")
+        
+        with st.form("journalist_submission"):
+            submitted_title = st.text_input("Article Title", placeholder="Enter a descriptive title for your news report")
+            description = st.text_area("Description", placeholder="Brief description of the news report")
+            evidence_urls_text = st.text_area("Evidence URLs", placeholder="Enter URLs (one per line) that support your report")
+            content_raw = st.text_area("Content (Optional)", placeholder="If you have the full content, paste it here. Otherwise, it will be extracted from evidence URLs.")
+            
+            submitted = st.form_submit_button("Submit for Review", type="primary")
+            
+            if submitted:
+                if not submitted_title or not evidence_urls_text:
+                    st.error("Please provide both a title and at least one evidence URL.")
+                else:
+                    # Parse evidence URLs
+                    evidence_urls = [url.strip() for url in evidence_urls_text.split('\n') if url.strip()]
+                    
+                    if not evidence_urls:
+                        st.error("Please provide at least one valid evidence URL.")
+                    else:
+                        try:
+                            # Initialize database and embeddings
+                            db = ArticleDB()
+                            embeddings = EmbeddingSystem()
+                            
+                            # Create submission
+                            submission = SubmissionModel(
+                                id=str(uuid.uuid4()),
+                                type="journalist_report",
+                                submitter_id="journalist",
+                                submitter_role="journalist",
+                                submitted_title=submitted_title,
+                                description=description or "",
+                                content_raw=content_raw or "",
+                                evidence_urls=evidence_urls,
+                                synthesized_content="",
+                                signals={},
+                                validity_score=0.0,
+                                reasons=[],
+                                blockers=[],
+                                status=SubmissionStatus.PENDING,
+                                decision_type=None,
+                                review_token=None,
+                                review_notes=None,
+                                created_at=datetime.now(timezone.utc).isoformat(),
+                                decided_at=None
+                            )
+                            
+                            # Save submission
+                            submission_id = db.save_submission(submission)
+                            
+                            # Run approval agent
+                            with st.spinner("🤖 AI Agent is analyzing your submission..."):
+                                outcome = run_approval_agent(
+                                    db=db,
+                                    embeddings=embeddings,
+                                    submission_id=submission_id,
+                                    config=ApprovalConfig(),
+                                    llm_config=LLMConfig()
+                                )
+                            
+                            # Display results
+                            st.success("✅ Submission processed!")
+                            
+                            col1, col2, col3 = st.columns(3)
+                            with col1:
+                                st.metric("Validity Score", f"{outcome.validity_score:.2f}")
+                            with col2:
+                                st.metric("Status", outcome.status.value)
+                            with col3:
+                                if outcome.decision_type:
+                                    st.metric("Decision", outcome.decision_type.value)
+                            
+                            # Show reasons
+                            if outcome.reasons:
+                                st.info(f"✅ **Reasons**: {', '.join(outcome.reasons)}")
+                            
+                            # Show blockers
+                            if outcome.blockers:
+                                st.error(f"❌ **Blockers**: {', '.join(outcome.blockers)}")
+                            
+                            # Show synthesized content
+                            if outcome.synthesized_content:
+                                with st.expander("📝 Synthesized Content", expanded=False):
+                                    st.write(outcome.synthesized_content)
+                            
+                            # Show signals
+                            if outcome.signals:
+                                with st.expander("🔍 Analysis Details", expanded=False):
+                                    for key, value in outcome.signals.items():
+                                        if isinstance(value, (int, float)):
+                                            st.write(f"**{key}**: {value:.3f}")
+                                        else:
+                                            st.write(f"**{key}**: {value}")
+                            
+                            # Show next steps
+                            if outcome.status == SubmissionStatus.NEEDS_REVIEW:
+                                st.warning("🔍 Your submission needs human review. An admin will review it shortly.")
+                            elif outcome.status == SubmissionStatus.AUTO_APPROVED:
+                                st.success("🎉 Your submission was automatically approved and is now live!")
+                            elif outcome.status == SubmissionStatus.REJECTED:
+                                st.error("❌ Your submission was rejected. Please address the blockers and resubmit.")
+                            
+                        except Exception as e:
+                            st.error(f"❌ Error processing submission: {str(e)}")
+                            st.exception(e)
+
+    elif ss.active_tab == "🔍 Admin Review":
+        st.markdown("### Admin Review Queue")
+        st.markdown("Review pending submissions that need human approval.")
+        
+        try:
+            # Initialize database
+            db = ArticleDB()
+            
+            # Get pending submissions
+            pending_submissions = []
+            try:
+                # This would need to be implemented in ArticleDB
+                # For now, we'll show a placeholder
+                st.info("📋 Admin review functionality will be implemented in the next iteration.")
+                st.info("Pending submissions will appear here for human review.")
+                
+                # Placeholder for future implementation
+                if st.button("🔄 Refresh Queue", type="primary"):
+                    st.info("Queue refreshed! (Placeholder)")
+                    
+            except Exception as e:
+                st.error(f"Error loading submissions: {str(e)}")
+                
+        except Exception as e:
+            st.error(f"Database error: {str(e)}")
 
 
 if __name__ == "__main__":

@@ -1,7 +1,7 @@
 import sqlite3
 import json
 from datetime import datetime, timedelta
-from typing import List, Optional
+from typing import List, Optional, Dict
 from .data_models import Article, Source, ContentType, SourceCategory, SubmissionModel
 
 # TODO for simplicity did not use ORM, use ORM in the future
