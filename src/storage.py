@@ -1,8 +1,8 @@
 import sqlite3
 import json
 from datetime import datetime, timedelta
-from typing import List, Optional
-from .data_models import Article, Source, ContentType, SourceCategory
+from typing import List, Optional, Dict
+from .data_models import Article, Source, ContentType, SourceCategory, SubmissionModel
 
 # TODO for simplicity did not use ORM, use ORM in the future
 class ArticleDB:
@@ -33,6 +33,11 @@ class ArticleDB:
                 -- Labels
                 content_type TEXT,
                 urgency_score REAL,
+                
+                -- Provenance (added for agentic journalist reports)
+                provenance_source TEXT,
+                decision_type TEXT,
+                evidence_urls TEXT,
                 
                 -- Timestamps
                 published_at TEXT,
@@ -75,6 +80,76 @@ class ArticleDB:
         
         conn.commit()
         conn.close()
+
+        # Initialize submissions and audit tables for approval agent
+        conn = sqlite3.connect(self.db_path)
+        try:
+            conn.execute("""
+            CREATE TABLE IF NOT EXISTS submissions (
+                id TEXT PRIMARY KEY,
+                type TEXT NOT NULL, -- 'report' | 'article' (MVP uses 'report')
+                submitter_id TEXT NOT NULL,
+                submitter_role TEXT NOT NULL, -- 'journalist' | 'admin'
+                
+                submitted_title TEXT NOT NULL,
+                description TEXT,
+                content_raw TEXT,
+                evidence_urls TEXT, -- JSON array
+                
+                url TEXT, -- optional for future 'article' type
+                extracted_title TEXT,
+                synthesized_content TEXT,
+                language_detected TEXT,
+                published_time_parsed TEXT,
+                
+                signals TEXT, -- JSON blob of step-level metrics
+                validity_score REAL,
+                reasons TEXT, -- JSON array of strings
+                blockers TEXT, -- JSON array of strings
+                
+                status TEXT NOT NULL, -- 'pending' | 'auto_approved' | 'approved' | 'rejected' | 'needs_review'
+                decision_type TEXT, -- 'auto_approved' | 'reviewed'
+                review_token TEXT,
+                review_notes TEXT,
+                
+                created_at TEXT NOT NULL,
+                decided_at TEXT
+            )
+            """)
+
+            conn.execute("""
+            CREATE TABLE IF NOT EXISTS submission_audit (
+                id TEXT PRIMARY KEY,
+                submission_id TEXT NOT NULL,
+                step TEXT NOT NULL,
+                outcome TEXT, -- JSON blob
+                score_delta REAL,
+                created_at TEXT NOT NULL,
+                FOREIGN KEY(submission_id) REFERENCES submissions(id)
+            )
+            """)
+
+            conn.commit()
+        finally:
+            conn.close()
+
+        # Best-effort schema migrations for new columns
+        conn = sqlite3.connect(self.db_path)
+        try:
+            for sql in [
+                "ALTER TABLE submissions ADD COLUMN review_token TEXT",
+                "ALTER TABLE submissions ADD COLUMN review_notes TEXT",
+                "ALTER TABLE articles ADD COLUMN provenance_source TEXT",
+                "ALTER TABLE articles ADD COLUMN decision_type TEXT",
+                "ALTER TABLE articles ADD COLUMN evidence_urls TEXT",
+            ]:
+                try:
+                    conn.execute(sql)
+                except Exception:
+                    pass
+            conn.commit()
+        finally:
+            conn.close()
     
     def save_article(self, article: Article) -> bool:
         """Save an article to the database"""
@@ -85,9 +160,10 @@ class ArticleDB:
                     id, title, content, description, url, author, url_to_image,
                     source_id, source_name, source_credibility,
                     content_type, urgency_score,
+                    provenance_source, decision_type, evidence_urls,
                     published_at, created_at,
                     embedding, entities, topics
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 article.id,
                 article.title,
@@ -101,6 +177,9 @@ class ArticleDB:
                 article.source.credibility_score,
                 article.content_type.value,
                 article.urgency_score,
+                getattr(article, "provenance_source", None),
+                getattr(article, "decision_type", None),
+                json.dumps(getattr(article, "evidence_urls", None)) if getattr(article, "evidence_urls", None) is not None else None,
                 article.published_at.isoformat(),
                 article.created_at.isoformat(),
                 json.dumps(article.embedding) if article.embedding else None,
@@ -246,7 +325,7 @@ class ArticleDB:
         entities = json.loads(row["entities"]) if row["entities"] else []
         topics = json.loads(row["topics"]) if row["topics"] else []
         
-        return Article(
+        art = Article(
             id=row["id"],
             title=row["title"],
             content=row["content"],
@@ -263,6 +342,230 @@ class ArticleDB:
             topics=topics,
             created_at=created_at
         )
+        # Attach optional provenance fields if present
+        try:
+            setattr(art, "provenance_source", row["provenance_source"])  # may be None
+            setattr(art, "decision_type", row["decision_type"])          # may be None
+            ev = json.loads(row["evidence_urls"]) if row["evidence_urls"] else None
+            setattr(art, "evidence_urls", ev)
+        except Exception:
+            pass
+        return art
+
+    # -------------------- Submissions CRUD (Approval Agent) --------------------
+    def create_submission(self,
+                          *,
+                          submission_id: str,
+                          submitter_id: str,
+                          submitter_role: str,
+                          submitted_title: str,
+                          description: Optional[str],
+                          content_raw: Optional[str],
+                          evidence_urls: list[str],
+                          created_at_iso: str,
+                          submission_type: str = "report",
+                          status: str = "pending") -> bool:
+        conn = sqlite3.connect(self.db_path)
+        try:
+            conn.execute(
+                """
+                INSERT INTO submissions (
+                    id, type, submitter_id, submitter_role,
+                    submitted_title, description, content_raw, evidence_urls,
+                    status, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    submission_id, submission_type, submitter_id, submitter_role,
+                    submitted_title, description, content_raw, json.dumps(evidence_urls or []),
+                    status, created_at_iso
+                )
+            )
+            conn.commit()
+            return True
+        except Exception as e:
+            print(f"Error creating submission: {e}")
+            return False
+        finally:
+            conn.close()
+
+    def update_submission_decision(self, submission_id: str, *,
+                                   status: str,
+                                   decision_type: Optional[str],
+                                   validity_score: Optional[float],
+                                   reasons: Optional[list[str]],
+                                   blockers: Optional[list[str]],
+                                   synthesized_content: Optional[str] = None,
+                                   extracted_title: Optional[str] = None,
+                                   signals: Optional[dict] = None,
+                                   decided_at_iso: Optional[str] = None) -> bool:
+        conn = sqlite3.connect(self.db_path)
+        try:
+            conn.execute(
+                """
+                UPDATE submissions SET
+                    status = ?,
+                    decision_type = ?,
+                    validity_score = ?,
+                    reasons = ?,
+                    blockers = ?,
+                    synthesized_content = COALESCE(?, synthesized_content),
+                    extracted_title = COALESCE(?, extracted_title),
+                    signals = COALESCE(?, signals),
+                    decided_at = COALESCE(?, decided_at)
+                WHERE id = ?
+                """,
+                (
+                    status,
+                    decision_type,
+                    validity_score,
+                    json.dumps(reasons or []),
+                    json.dumps(blockers or []),
+                    synthesized_content,
+                    extracted_title,
+                    json.dumps(signals or {}) if signals is not None else None,
+                    decided_at_iso,
+                    submission_id
+                )
+            )
+            conn.commit()
+            return True
+        except Exception as e:
+            print(f"Error updating submission decision: {e}")
+            return False
+        finally:
+            conn.close()
+
+    def get_pending_submissions(self, limit: int = 50) -> list[dict]:
+        conn = sqlite3.connect(self.db_path)
+        conn.row_factory = sqlite3.Row
+        try:
+            rows = conn.execute(
+                "SELECT * FROM submissions WHERE status = 'pending' ORDER BY created_at ASC LIMIT ?",
+                (limit,)
+            ).fetchall()
+            return [dict(r) for r in rows]
+        finally:
+            conn.close()
+
+    def get_submission(self, submission_id: str) -> Optional[SubmissionModel]:
+        conn = sqlite3.connect(self.db_path)
+        conn.row_factory = sqlite3.Row
+        try:
+            row = conn.execute("SELECT * FROM submissions WHERE id = ?", (submission_id,)).fetchone()
+            if not row:
+                return None
+            data = dict(row)
+            # Let Pydantic coerce JSON and enums
+            return SubmissionModel(**data)
+        finally:
+            conn.close()
+
+    def get_submissions_by_status(self, status: str, limit: int = 50) -> list[dict]:
+        conn = sqlite3.connect(self.db_path)
+        conn.row_factory = sqlite3.Row
+        try:
+            rows = conn.execute(
+                "SELECT * FROM submissions WHERE status = ? ORDER BY created_at ASC LIMIT ?",
+                (status, limit)
+            ).fetchall()
+            return [dict(r) for r in rows]
+        finally:
+            conn.close()
+
+    def set_submission_review_token(self, submission_id: str, review_token: str) -> bool:
+        conn = sqlite3.connect(self.db_path)
+        try:
+            conn.execute("UPDATE submissions SET review_token = ? WHERE id = ?", (review_token, submission_id))
+            conn.commit()
+            return True
+        except Exception as e:
+            print(f"Error setting review token: {e}")
+            return False
+        finally:
+            conn.close()
+
+    def set_submission_review_notes(self, submission_id: str, notes: str) -> bool:
+        conn = sqlite3.connect(self.db_path)
+        try:
+            conn.execute("UPDATE submissions SET review_notes = ? WHERE id = ?", (notes, submission_id))
+            conn.commit()
+            return True
+        except Exception as e:
+            print(f"Error setting review notes: {e}")
+            return False
+        finally:
+            conn.close()
+
+    def save_submission(self, submission: SubmissionModel) -> str:
+        """Save a submission model to the database and return the submission ID."""
+        try:
+            conn = sqlite3.connect(self.db_path)
+            conn.execute("""
+                INSERT INTO submissions (
+                    id, type, submitter_id, submitter_role, submitted_title, description,
+                    content_raw, evidence_urls, synthesized_content, signals, validity_score,
+                    reasons, blockers, status, decision_type, review_token, review_notes,
+                    created_at, decided_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                submission.id, submission.type, submission.submitter_id, submission.submitter_role,
+                submission.submitted_title, submission.description, submission.content_raw,
+                json.dumps(submission.evidence_urls or []), submission.synthesized_content,
+                json.dumps(submission.signals or {}), submission.validity_score,
+                json.dumps(submission.reasons or []), json.dumps(submission.blockers or []),
+                submission.status.value if submission.status else None,
+                submission.decision_type.value if submission.decision_type else None,
+                submission.review_token, submission.review_notes,
+                submission.created_at, submission.decided_at
+            ))
+            conn.commit()
+            return submission.id
+        except Exception as e:
+            print(f"Error saving submission: {e}")
+            raise
+        finally:
+            conn.close()
+
+    def get_recent_submission_decisions(self, limit: int = 100) -> List[Dict]:
+        """Get recent submission decisions for adaptive learning."""
+        conn = sqlite3.connect(self.db_path)
+        conn.row_factory = sqlite3.Row
+        try:
+            rows = conn.execute(
+                """
+                SELECT decision_type, validity_score, status, decided_at
+                FROM submissions 
+                WHERE decided_at IS NOT NULL
+                ORDER BY decided_at DESC 
+                LIMIT ?
+                """,
+                (limit,)
+            ).fetchall()
+            return [dict(row) for row in rows]
+        except Exception as e:
+            print(f"Error getting recent decisions: {e}")
+            return []
+        finally:
+            conn.close()
+
+    def append_submission_audit(self, *, audit_id: str, submission_id: str, step: str, outcome: dict, score_delta: Optional[float], created_at_iso: str) -> bool:
+        conn = sqlite3.connect(self.db_path)
+        try:
+            conn.execute(
+                """
+                INSERT INTO submission_audit (id, submission_id, step, outcome, score_delta, created_at)
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (audit_id, submission_id, step, json.dumps(outcome or {}), score_delta, created_at_iso)
+            )
+            conn.commit()
+            return True
+        except Exception as e:
+            print(f"Error appending submission audit: {e}")
+            return False
+        finally:
+            conn.close()
         
     # Batch loading increases efficiency
     def get_articles_by_ids(self, article_ids: List[str]) -> List[Article]:

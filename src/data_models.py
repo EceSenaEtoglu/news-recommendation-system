@@ -1,7 +1,8 @@
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Any
 from enum import Enum
+from pydantic import BaseModel, field_validator
 
 class ContentType(Enum):
     BREAKING_NEWS = "breaking"
@@ -18,6 +19,25 @@ class SourceCategory(Enum):
     SCIENCE = "science"
     POLITICS = "politics"
     GENERAL = "general"
+class SubmissionStatus(Enum):
+    PENDING = "pending"
+    AUTO_APPROVED = "auto_approved"
+    APPROVED = "approved"
+    REJECTED = "rejected"
+    NEEDS_REVIEW = "needs_review"
+
+
+# decision_type: subtype of approval only
+class DecisionType(Enum):
+    AUTO_APPROVED = "auto_approved"
+    REVIEWED = "reviewed"
+
+
+class ArticleProvenance(Enum):
+    SCRAPED = "scraped"
+    JOURNALIST_REPORT = "journalist_report"
+    JOURNALIST_ARTICLE = "journalist_article"
+
 
 
 @dataclass
@@ -57,6 +77,101 @@ class Article:
     entities: List[tuple[str, str, int]] = field(default_factory=list)  # (name, type, count)
     topics: List[str] = field(default_factory=list)
     created_at: datetime = field(default_factory=datetime.now)
+
+    # Agentic provenance (optional; populated for journalist reports)
+    provenance_source: Optional[ArticleProvenance] = None
+    decision_type: Optional[DecisionType] = None
+    evidence_urls: List[str] = field(default_factory=list)
+
+
+class SubmissionModel(BaseModel):
+    id: str
+    type: str = "report"
+    submitter_id: str
+    submitter_role: str
+
+    submitted_title: str
+    description: Optional[str] = None
+    content_raw: Optional[str] = None
+    evidence_urls: List[str] = []
+
+    url: Optional[str] = None
+    extracted_title: Optional[str] = None
+    synthesized_content: Optional[str] = None
+    language_detected: Optional[str] = None
+    published_time_parsed: Optional[str] = None
+
+    signals: Dict[str, Any] = {}
+    validity_score: Optional[float] = None
+    reasons: List[str] = []
+    blockers: List[str] = []
+
+    status: Optional[SubmissionStatus] = None
+    decision_type: Optional[DecisionType] = None
+    review_token: Optional[str] = None
+    review_notes: Optional[str] = None
+
+    created_at: Optional[str] = None
+    decided_at: Optional[str] = None
+
+    @field_validator("evidence_urls", mode="before")
+    @classmethod
+    def _coerce_evidence(cls, v):
+        if v is None:
+            return []
+        if isinstance(v, str):
+            try:
+                import json as _json
+                return _json.loads(v)
+            except Exception:
+                return []
+        return v
+
+    @field_validator("reasons", "blockers", mode="before")
+    @classmethod
+    def _coerce_list(cls, v):
+        if v is None:
+            return []
+        if isinstance(v, str):
+            try:
+                import json as _json
+                return _json.loads(v)
+            except Exception:
+                return []
+        return v
+
+    @field_validator("signals", mode="before")
+    @classmethod
+    def _coerce_dict(cls, v):
+        if v is None:
+            return {}
+        if isinstance(v, str):
+            try:
+                import json as _json
+                return _json.loads(v)
+            except Exception:
+                return {}
+        return v
+
+    @field_validator("status", mode="before")
+    @classmethod
+    def _coerce_status(cls, v):
+        if v is None or isinstance(v, SubmissionStatus):
+            return v
+        try:
+            return SubmissionStatus(v)
+        except Exception:
+            return None
+
+    @field_validator("decision_type", mode="before")
+    @classmethod
+    def _coerce_decision(cls, v):
+        if v is None or isinstance(v, DecisionType):
+            return v
+        try:
+            return DecisionType(v)
+        except Exception:
+            return None
     
     # called automatically after the object is created
     def __post_init__(self):
