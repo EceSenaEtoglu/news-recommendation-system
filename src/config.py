@@ -81,6 +81,23 @@ class RAGConfig:
 
 
 @dataclass
+class ApprovalConfig:
+    """Minimal thresholds and weights for the journalist report approval agent (MVP)."""
+    # thresholds
+    tau_auto: float = 0.80          # auto-approve cut
+    tau_review: float = 0.55        # review band floor
+    tau_dup: float = 0.95           # exact duplicate hard block
+    tau_title_align: float = 0.75   # accept submitted title if aligned
+
+    # weights (sum of positives ~0.90; penalties applied as max of dup/safety)
+    w_evidence_quality: float = 0.35    # count, extraction length, domain diversity
+    w_coherence: float = 0.25           # avg pairwise cosine across evidence
+    w_title_consistency: float = 0.15   # submitted vs synthesized
+    w_content_quality: float = 0.15     # length, boilerplate, language
+    w_penalties_dup_safety: float = -0.20  # max of (dup penalty, safety penalty)
+
+
+@dataclass
 class EmbeddingModelConfig:
     """Configuration for embedding models"""
     name: str
