@@ -497,6 +497,36 @@ class ArticleDB:
         finally:
             conn.close()
 
+    def save_submission(self, submission: SubmissionModel) -> str:
+        """Save a submission model to the database and return the submission ID."""
+        try:
+            conn = sqlite3.connect(self.db_path)
+            conn.execute("""
+                INSERT INTO submissions (
+                    id, type, submitter_id, submitter_role, submitted_title, description,
+                    content_raw, evidence_urls, synthesized_content, signals, validity_score,
+                    reasons, blockers, status, decision_type, review_token, review_notes,
+                    created_at, decided_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                submission.id, submission.type, submission.submitter_id, submission.submitter_role,
+                submission.submitted_title, submission.description, submission.content_raw,
+                json.dumps(submission.evidence_urls or []), submission.synthesized_content,
+                json.dumps(submission.signals or {}), submission.validity_score,
+                json.dumps(submission.reasons or []), json.dumps(submission.blockers or []),
+                submission.status.value if submission.status else None,
+                submission.decision_type.value if submission.decision_type else None,
+                submission.review_token, submission.review_notes,
+                submission.created_at, submission.decided_at
+            ))
+            conn.commit()
+            return submission.id
+        except Exception as e:
+            print(f"Error saving submission: {e}")
+            raise
+        finally:
+            conn.close()
+
     def get_recent_submission_decisions(self, limit: int = 100) -> List[Dict]:
         """Get recent submission decisions for adaptive learning."""
         conn = sqlite3.connect(self.db_path)

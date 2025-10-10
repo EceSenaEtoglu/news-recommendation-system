@@ -14,6 +14,7 @@ from src.storage import ArticleDB
 from src.embeddings import EmbeddingSystem
 from src.agents.approval_agent import run_approval_agent, apply_reviewer_decision
 from src.config import ApprovalConfig, LLMConfig
+from src.utils.model_downloader import download_model_at_startup, check_model_availability
 
 # Helpers
 # Import summarization model
@@ -457,6 +458,21 @@ def main():
         initial_sidebar_state="expanded"
     )
     
+    # Pre-download model at startup
+    if 'model_downloaded' not in st.session_state:
+        with st.spinner("🔄 Preparing AI model for fact-checking..."):
+            model_name = "microsoft/DialoGPT-small"
+            if check_model_availability(model_name):
+                st.session_state.model_downloaded = True
+                st.success("✅ AI model ready!")
+            else:
+                success = download_model_at_startup(model_name)
+                st.session_state.model_downloaded = success
+                if success:
+                    st.success("🎉 AI model downloaded and ready!")
+                else:
+                    st.warning("⚠️ AI model download failed - using fallback analysis")
+    
     # Custom CSS for modern styling
     st.markdown("""
     <style>
@@ -724,13 +740,13 @@ def main():
             submitted_title = st.text_input("Article Title", placeholder="Enter a descriptive title for your news report")
             description = st.text_area("Description", placeholder="Brief description of the news report")
             evidence_urls_text = st.text_area("Evidence URLs", placeholder="Enter URLs (one per line) that support your report")
-            content_raw = st.text_area("Content (Optional)", placeholder="If you have the full content, paste it here. Otherwise, it will be extracted from evidence URLs.")
+            content_raw = st.text_area("Content", placeholder="Enter the full content of your news report", help="This content will be validated against the evidence URLs")
             
             submitted = st.form_submit_button("Submit for Review", type="primary")
             
             if submitted:
-                if not submitted_title or not evidence_urls_text:
-                    st.error("Please provide both a title and at least one evidence URL.")
+                if not submitted_title or not evidence_urls_text or not content_raw:
+                    st.error("Please provide a title, at least one evidence URL, and the content.")
                 else:
                     # Parse evidence URLs
                     evidence_urls = [url.strip() for url in evidence_urls_text.split('\n') if url.strip()]

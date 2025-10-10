@@ -318,7 +318,7 @@ def _llm_content_analysis(content: str, evidence_texts: List[str], embeddings: E
     fact_check_score = 0.8  # Base score
     
     try:
-        # Use Hugging Face Transformers directly
+        # Use tiny Hugging Face model for fast inference
         from transformers import AutoTokenizer, AutoModelForCausalLM
         import torch
         
@@ -327,49 +327,29 @@ def _llm_content_analysis(content: str, evidence_texts: List[str], embeddings: E
             from src.config import LLMConfig
             llm_config = LLMConfig()
         
-        # Load model and tokenizer (cached after first use)
+        # Use tiny Hugging Face model for fast inference
         model_name = llm_config.model_name
-        tokenizer = AutoTokenizer.from_pretrained(model_name)
         
-        # Set pad token if not available
-        if tokenizer.pad_token is None:
-            tokenizer.pad_token = tokenizer.eos_token
-            
+        # Load model and tokenizer (cached after first use)
+        tokenizer = AutoTokenizer.from_pretrained(model_name)
         model = AutoModelForCausalLM.from_pretrained(
             model_name,
             torch_dtype=torch.float16 if torch.cuda.is_available() else torch.float32,
             device_map="auto" if torch.cuda.is_available() else None
         )
         
+        # Set pad token if not available
+        if tokenizer.pad_token is None:
+            tokenizer.pad_token = tokenizer.eos_token
+        
         # Prepare evidence context
-        evidence_context = "\n\n".join([f"Evidence {i+1}: {text[:500]}" for i, text in enumerate(evidence_texts[:3])])
+        evidence_context = "\n\n".join([f"Evidence {i+1}: {text[:300]}" for i, text in enumerate(evidence_texts[:2])])
         
-        # Fact-checking prompt
-        fact_check_prompt = f"""
-        Analyze the following synthesized content for factual accuracy against the provided evidence.
-        
-        SYNTHESIZED CONTENT:
-        {content[:1500]}
-        
-        EVIDENCE:
-        {evidence_context}
-        
-        Please provide:
-        1. A fact-check score (0.0-1.0) based on how well the content aligns with the evidence
-        2. Any contradictions or inconsistencies you find
-        3. A synthesis quality score (0.0-1.0) based on how well the content synthesizes the evidence
-        
-        Respond in JSON format:
-        {{
-            "fact_check_score": 0.8,
-            "contradictions": ["specific contradiction 1", "specific contradiction 2"],
-            "synthesis_quality": 0.7,
-            "reasoning": "brief explanation"
-        }}
-        """
+        # Simple fact-checking prompt for tiny model
+        fact_check_prompt = f"Content: {content[:400]} Evidence: {evidence_context[:400]} Score:"
         
         # Tokenize and generate
-        inputs = tokenizer(fact_check_prompt, return_tensors="pt", truncation=True, max_length=2048)
+        inputs = tokenizer(fact_check_prompt, return_tensors="pt", truncation=True, max_length=512)
         
         with torch.no_grad():
             outputs = model.generate(
@@ -383,18 +363,38 @@ def _llm_content_analysis(content: str, evidence_texts: List[str], embeddings: E
         # Decode response
         llm_response = tokenizer.decode(outputs[0][inputs['input_ids'].shape[1]:], skip_special_tokens=True)
         
-        # Try to extract JSON from the response
-        json_match = re.search(r'\{.*\}', llm_response, re.DOTALL)
-        if json_match:
-            parsed_result = json.loads(json_match.group())
-            fact_check_score = float(parsed_result.get("fact_check_score", 0.5))
-            contradictions = parsed_result.get("contradictions", [])
-            synthesis_quality = float(parsed_result.get("synthesis_quality", 0.5))
-        else:
-            # Fallback parsing
-            fact_check_score = 0.5
-            synthesis_quality = 0.5
-            contradictions = ["Failed to parse LLM response"]
+        # Extract scores from response (simple parsing)
+        fact_check_score = 0.7  # Default
+        synthesis_quality = 0.6  # Default
+        
+        # Parse response for scores (simple heuristic)
+        if "0.8" in llm_response or "0.9" in llm_response or "1.0" in llm_response:
+            fact_check_score = 0.8
+        elif "0.6" in llm_response or "0.7" in llm_response:
+            fact_check_score = 0.6
+        elif "0.4" in llm_response or "0.5" in llm_response:
+            fact_check_score = 0.4
+        elif "0.0" in llm_response or "0.1" in llm_response or "0.2" in llm_response or "0.3" in llm_response:
+            fact_check_score = 0.2
+        
+        # Check for contradictions in response
+        if any(word in llm_response.lower() for word in ["contradiction", "inconsistent", "disagree", "conflict", "wrong"]):
+            contradictions.append("LLM detected contradictions in content")
+            fact_check_score = min(fact_check_score, 0.4)
+        
+        # Adjust based on content quality
+        if len(content) < 100:
+            contradictions.append("Content too short for reliable fact-checking")
+            fact_check_score = min(fact_check_score, 0.3)
+        
+        if len(evidence_texts) < 2:
+            contradictions.append("Insufficient evidence for reliable validation")
+            fact_check_score = min(fact_check_score, 0.4)
+        
+        # Boost scores for high-quality content
+        if len(content) > 500 and len(evidence_texts) >= 2:
+            fact_check_score = min(1.0, fact_check_score + 0.1)
+            synthesis_quality = min(1.0, synthesis_quality + 0.1)
         
     except ImportError:
         # Fallback if transformers not available

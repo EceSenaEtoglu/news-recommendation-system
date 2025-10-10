@@ -164,21 +164,19 @@ class RecommendationConfig:
 @dataclass
 class LLMConfig:
     """Configuration for LLM-based analysis."""
-    # Hugging Face model settings
-    model_name: str = "microsoft/DialoGPT-medium"  # Default lightweight model
+    # Tiny Hugging Face model for fast startup
+    model_name: str = "microsoft/DialoGPT-small"  # Tiny model (~117MB)
     temperature: float = 0.1
-    max_tokens: int = 500
+    max_tokens: int = 200  # Reduced for faster generation
     
-    # Recommended models for different use cases:
-    # model_name: str = "microsoft/DialoGPT-medium"     # Lightweight, good for basic tasks
-    # model_name: str = "facebook/blenderbot-400M-distill"  # Conversational AI
-    # model_name: str = "EleutherAI/gpt-neo-125M"      # Small GPT-style model
-    # model_name: str = "distilbert-base-uncased"      # BERT-style for classification
-    # model_name: str = "google/flan-t5-small"         # Instruction-following model
-    # model_name: str = "microsoft/DialoGPT-small"     # Even smaller option
+    # Recommended tiny models for different use cases:
+    # model_name: str = "microsoft/DialoGPT-small"     # Tiny conversational (~117MB) - RECOMMENDED
+    # model_name: str = "distilgpt2"                   # Tiny GPT-style (~82MB)
+    # model_name: str = "google/flan-t5-small"         # Tiny instruction (~60MB)
+    # model_name: str = "EleutherAI/gpt-neo-125M"      # Small GPT (~500MB)
     
     # For better performance (requires more memory):
-    # model_name: str = "EleutherAI/gpt-neo-1.3B"      # Larger GPT-style model
-    # model_name: str = "google/flan-t5-base"          # Better instruction following
+    # model_name: str = "microsoft/DialoGPT-medium"    # Medium model (~863MB)
+    # model_name: str = "EleutherAI/gpt-neo-1.3B"      # Large model (~5GB)
 
 
