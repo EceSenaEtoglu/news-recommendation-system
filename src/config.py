@@ -32,13 +32,6 @@ class RAGConfig:
     # topic_lr: float = TOPIC_LR
     # freshness_decay_exp_constant: float = FRESHNESS_DECAY_EXP_CONSTANT_DAYS
 
-    # Hybrid weights
-    bm25_weight: float = 0.4
-    semantic_weight: float = 0.6
-
-    # Freshness parameters
-    freshness_decay_hours: float = 24.0
-    freshness_weight: float = 0.3
 
     # Personalization weights and penalties
     # TODO are these necessary now? is it old code
@@ -57,21 +50,17 @@ class RAGConfig:
     min_sources: int = 2
     opposing_view_boost: float = 0.1
 
-    # Self-RAG (Cross-encoder)
-    enable_cross_encoder: bool = True
-    cross_encoder_weight: float = 0.3
-
     # Graph RAG
     enable_graph_rag: bool = True
     entity_boost_weight: float = 0.15
 
-    # CONFIGS FOR NEWS CLASSIFICATION
-    breaking_news_urgency_coeff: float = 0.7
-    breaking_news_freshness_coeff: float = 0.3
+    # CONFIGS FOR NEWS CLASSIFICATION, not used in mvp
+    #breaking_news_urgency_coeff: float = 0.7
+    #breaking_news_freshness_coeff: float = 0.3
 
-    background_content_length_threshold: int = 2000
-    background_analysis_boost: float = 1.2
-    background_feature_boost: float = 1.0
+    #background_content_length_threshold: int = 2000
+    #background_analysis_boost: float = 1.2
+    #background_feature_boost: float = 1.0
 
     # Content quality weights
     content_length_weight: float = 0.4
@@ -80,6 +69,13 @@ class RAGConfig:
 
     max_entities_per_article: int = MAX_ENTITIES_PER_ARTICLE
     max_topics_per_article: int = MAX_TOPICS_PER_ARTICLE
+
+    # RAG pipeline knobs
+    BM25_K: int = 200
+    DENSE_K: int = 200
+    POOL_K: int = 300   # breadth for recall (after RRF + graph)
+    CE_K: int = 100     # expensive CE depth (only used if CE is enabled)
+    RRF_K: int = 60     # reciprocal-rank constant for RRF
 
 
 
