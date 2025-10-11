@@ -53,6 +53,9 @@ class RAGConfig:
     # Graph RAG
     enable_graph_rag: bool = True
     entity_boost_weight: float = 0.15
+    
+    # Cross-encoder reranking
+    enable_cross_encoder: bool = True
 
     # CONFIGS FOR NEWS CLASSIFICATION, not used in mvp
     #breaking_news_urgency_coeff: float = 0.7
@@ -137,16 +140,14 @@ class NeuralRerankerConfig:
 
 @dataclass
 class RecommendationConfig:
-    """Lightweight config for the AI recommender."""
+    """Configuration for the unified recommendation system."""
+    # Basic settings
     top_k: int = 10
     min_score: float = 0.0  # cosine similarity threshold in FAISS (0..1 after normalize)
+    
+    # Topic overlap bonus
     topic_overlap_boost: float = 0.1  # additional boost per topic overlap (small)
     max_topic_bonus: float = 0.5      # cap total bonus from topics
-
-    # MMR diversification
-    use_mmr: bool = False
-    mmr_lambda: float = 0.7  # trade-off: 1.0 = all relevance, 0.0 = all diversity
-    mmr_pool: int = 50       # candidate pool size before MMR selection
     
     # Neural reranker settings (for future use - requires user interaction data)
     use_neural_reranker: bool = False

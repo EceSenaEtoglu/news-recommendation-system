@@ -4,7 +4,7 @@ import numpy as np
 
 from src.embeddings import EmbeddingSystem
 from src.providers.fixture import FixtureProvider
-from src.recommendation_learner import AIRecommender, RecommendationConfig
+from src.recommendation_system import RecommendationSystem, RecommendationConfig
 
 
 def avg_pairwise_cosine(emb: EmbeddingSystem, articles):
@@ -30,11 +30,11 @@ async def main_async(k: int, seeds: int):
     pool = candidates + featured
     seeds_list = pool[:seeds]
 
-    base_cfg = RecommendationConfig(use_mmr=False)
-    mmr_cfg = RecommendationConfig(use_mmr=True)
+    base_cfg = RecommendationConfig()
+    mmr_cfg = RecommendationConfig()  # MMR is handled in MultiRAGRetriever
 
-    base = AIRecommender(None, emb, base_cfg)  # db not needed for fixtures text
-    mmr  = AIRecommender(None, emb, mmr_cfg)
+    base = RecommendationSystem(None, emb, base_cfg)  # db not needed for fixtures text
+    mmr  = RecommendationSystem(None, emb, mmr_cfg)
 
     print("seed_id | base_cos | mmr_cos")
     for s in seeds_list:

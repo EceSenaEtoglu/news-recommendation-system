@@ -3,8 +3,8 @@ Content quality analysis utilities for news recommendations.
 """
 
 from typing import List
-from data_models import Article
-from config import RAGConfig
+from src.data_models import Article
+from src.config import RAGConfig
 
 
 class ContentQualityAnalyzer:

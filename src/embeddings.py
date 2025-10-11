@@ -5,8 +5,8 @@ import faiss
 from sentence_transformers import SentenceTransformer
 from typing import List, Tuple, Optional, Dict, Union
 from dataclasses import dataclass
-from data_models import Article
-from config import EmbeddingModelConfig
+from src.data_models import Article
+from src.config import EmbeddingModelConfig
 
 class EmbeddingSystem:
     """Handles embeddings and semantic search using FAISS with multi-model support"""
@@ -302,8 +302,9 @@ class EmbeddingSystem:
             self.article_id_to_faiss_id = {}
 
     
-    def rebuild_index_from_db(self, db):
-        """Rebuild the entire index from database articles"""
+    def rebuild_index_from_db(self, db,limit = 10000,hours_back=24*30):
+        """Rebuild the entire index from database articles
+        hours_back/24 gives the last X dates to fetch articles from. Last 30 days and 10000 articles max by default """
         print(" Rebuilding semantic index from database...")
         
         # Clear existing index
@@ -311,9 +312,7 @@ class EmbeddingSystem:
         self.faiss_id_to_metadata = {}
         self.article_id_to_faiss_id = {}
         
-        # Get all articles from database
-        # TODO parameteize hours and filtering
-        articles = db.get_recent_articles(limit=10000, hours_back=24*30)  # Last 30 days
+        articles = db.get_recent_articles(limit=limit, hours_back=hours_back)  # Last 30 days
         
         if articles:
             # Add articles to index

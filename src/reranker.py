@@ -9,10 +9,10 @@ import torch
 import torch.nn as nn
 from sklearn.model_selection import train_test_split
 
-from data_models import Article
-from storage import ArticleDB
-from embeddings import EmbeddingSystem
-from config import RerankFeatureConfig, NeuralRerankerConfig, RAGConfig
+from src.data_models import Article
+from src.storage import ArticleDB
+from src.embeddings import EmbeddingSystem
+from src.config import RerankFeatureConfig, NeuralRerankerConfig, RAGConfig
 
 
 class RerankFeatureExtractor:

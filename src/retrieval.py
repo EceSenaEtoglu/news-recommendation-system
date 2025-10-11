@@ -6,15 +6,15 @@ from datetime import datetime, timedelta, timezone
 from typing import List, Dict, Tuple, Optional
 from dataclasses import dataclass
 from rank_bm25 import BM25Okapi
-from utils.helpers import rrf
+from src.utils.helpers import rrf
 
-from data_models import Article, UserProfile, SearchQuery, SearchResult, ContentType
-from config import RAGConfig
-from storage import ArticleDB
-from embeddings import EmbeddingSystem
-from scoring import ScoringEngine
-from utils.content_analysis import ContentQualityAnalyzer
-from reranker import RerankingEngine
+from src.data_models import Article, UserProfile, SearchQuery, SearchResult, ContentType
+from src.config import RAGConfig
+from src.storage import ArticleDB
+from src.embeddings import EmbeddingSystem
+from src.scoring import ScoringEngine
+from src.utils.content_analysis import ContentQualityAnalyzer
+from src.reranker import RerankingEngine
 import spacy
 _NER = spacy.load("en_core_web_sm")
 
@@ -153,22 +153,24 @@ class MultiRAGRetriever:
     # TODO routing mechanism should be enhanced!
     # defaılts to hybrid rag for now
     async def search(self, query: SearchQuery, user_profile: Optional[UserProfile] = None) -> List[SearchResult]:
-        """Main search function with performance monitoring. Uses query routing mechanism"""
+        """Main search function with performance monitoring."""
         start_time = time.time()
         
         try:
             # Query type refers to different angles or aspects of coverage for the same underlying news event
-            # "Breaking news" = immediate, surface-level updates
-            # "Background pieces" = explanatory journalism that provides context
-            # None = use hybrid RAG (default for MVP)
+            # "Breaking news" = immediate, surface-level updates "Background pieces" = explanatory journalism that provides context
+            # None = use hybrid RAG 
 
-            if query.query_type == "breaking":
-                results = await self._breaking_news_rag(query, user_profile)
-            elif query.query_type == "background": 
-                results = await self._background_analysis_rag(query, user_profile)
-            # DEFAULT FOR THE MVP
-            else:
+            if not query.query_type:
                 results = await self._hybrid_rag(query, user_profile)
+
+            # TODO currently not used in the MVP
+            #else:
+            #    if query.query_type == "breaking":
+            #        results = await self._breaking_news_rag(query, user_profile)
+            #    elif query.query_type == "background": 
+            #        results = await self._background_analysis_rag(query, user_profile)
+        
             
             # Performance logging
             search_time = time.time() - start_time
@@ -195,7 +197,7 @@ class MultiRAGRetriever:
 
         # 3) Optional graph expansion
         if self.config.enable_graph_rag:
-            pooled = await self._apply_graph_expansion_over_pool(query.text, pooled)
+            pooled = await self._apply_graph_expansion(query.text, pooled)
             pooled = pooled[:self.config.POOL_K]  # re-cap after expansion
 
         # 4) Cross-encoder re-ranking (precision)
@@ -240,75 +242,75 @@ class MultiRAGRetriever:
     # looks at recent news articles, 6 hours old max
     # adds urgency score and freshness score to boost articles
     # TODO currently does not implement ANY user preference or similarity of articles or entity expansion
-    async def _breaking_news_rag(self, query: SearchQuery, user_profile: Optional[UserProfile]) -> List[SearchResult]:
-        """Breaking News RAG: Heavy freshness weighting + urgency bias"""
-        recent_articles = self.db.search_articles(
-            query=query.text,
-            hours_back=6,
-            limit=100
-        )
-        
-        scored_results = []
-        for article in recent_articles:
-            urgency_score = article.urgency_score
-            hours_old = (datetime.now(timezone.utc)- article.published_at).total_seconds() / 3600
-            freshness_score = max(0, 1 - (hours_old / 6))
-            
-            final_score = (urgency_score * RAGConfig.breaking_news_urgency_coeff)+ (freshness_score * RAGConfig.breaking_news_freshness_coeff)
-            scored_results.append((article.id, final_score, article))
-        
-        # sort based on reverse final_score to get the most recent news
-        scored_results.sort(key=lambda x: x[1], reverse=True)
-        return self._create_search_results(scored_results, query, user_profile)[:query.limit]
-    
-    # TODO currently not called as the routing mech is not implemented yet
-    # prioritizes content quality over freshness, looks at the articles from last week
-    # uses graph RAG to expand the results
-    # no similarity of articles
-    async def _background_analysis_rag(self, query: SearchQuery, user_profile: Optional[UserProfile]) -> List[SearchResult]:
-        """Background Analysis RAG: Multi-factor content quality scoring"""
-        
-        analysis_articles = self.db.search_articles(
-            query=query.text,
-            content_types=[ContentType.ANALYSIS, ContentType.FEATURE],
-            hours_back=24*7,  # Last week
-            limit=50
-        )
-        
-        # Convert to initial results format for graph expansion
-        initial_results = [(a.id, 1.0) for a in analysis_articles]  # Base score of 1.0
-        
-        if self.config.enable_graph_rag:
-            expanded_results = await self._apply_graph_expansion(query.text, initial_results)
-        else:
-            expanded_results = initial_results
-        
-        # Get the expanded articles
-        expanded_article_ids = [aid for aid, _ in expanded_results]
-        expanded_articles = self.db.get_articles_by_ids(expanded_article_ids)
-        articles_dict = {a.id: a for a in expanded_articles}
-        
-        scored_results = []
-        for article_id, base_score in expanded_results:
-            article = articles_dict.get(article_id)
-            if not article:
-                continue
-                
-            # Multi-factor content quality scoring
-            content_quality_score = self.content_analyzer.calculate_content_quality(article)
-            
-            # Content type boost based on configuration
-            if article.content_type == ContentType.ANALYSIS:
-                content_boost = self.config.background_analysis_boost
-            else:  # ContentType.FEATURE
-                content_boost = self.config.background_feature_boost
-            
-            # Combine base score (from graph expansion) with content quality
-            final_score = base_score * content_quality_score * content_boost
-            scored_results.append((article.id, final_score, article))
-        
-        scored_results.sort(key=lambda x: x[1], reverse=True)
-        return self._create_search_results(scored_results, query, user_profile)[:query.limit]
+    #async def _breaking_news_rag(self, query: SearchQuery, user_profile: Optional[UserProfile]) -> List[SearchResult]:
+    #    """Breaking News RAG: Heavy freshness weighting + urgency bias"""
+    #    recent_articles = self.db.search_articles(
+    #        query=query.text,
+    #        hours_back=6,
+    #        limit=100
+    #    )
+    #    
+    #    scored_results = []
+    #    for article in recent_articles:
+    #        urgency_score = article.urgency_score
+    #        hours_old = (datetime.now(timezone.utc)- article.published_at).total_seconds() / 3600
+    #        freshness_score = max(0, 1 - (hours_old / 6))
+    #        
+    #        final_score = (urgency_score * RAGConfig.breaking_news_urgency_coeff)+ (freshness_score * RAGConfig.breaking_news_freshness_coeff)
+    #        scored_results.append((article.id, final_score, article))
+    #    
+    #    # sort based on reverse final_score to get the most recent news
+    #    scored_results.sort(key=lambda x: x[1], reverse=True)
+    #    return self._create_search_results(scored_results, query, user_profile)[:query.limit]
+    #
+    ## TODO currently not called as the routing mech is not implemented yet
+    ## prioritizes content quality over freshness, looks at the articles from last week
+    ## uses graph RAG to expand the results
+    ## no similarity of articles
+    #async def _background_analysis_rag(self, query: SearchQuery, user_profile: Optional[UserProfile]) -> List[SearchResult]:
+    #    """Background Analysis RAG: Multi-factor content quality scoring"""
+    #    
+    #    analysis_articles = self.db.search_articles(
+    #        query=query.text,
+    #        content_types=[ContentType.ANALYSIS, ContentType.FEATURE],
+    #        hours_back=24*7,  # Last week
+    #        limit=50
+    #    )
+    #    
+    #    # Convert to initial results format for graph expansion
+    #    initial_results = [(a.id, 1.0) for a in analysis_articles]  # Base score of 1.0
+    #    
+    #    if self.config.enable_graph_rag:
+    #        expanded_results = await self._apply_graph_expansion(query.text, initial_results)
+    #    else:
+    #        expanded_results = initial_results
+    #    
+    #    # Get the expanded articles
+    #    expanded_article_ids = [aid for aid, _ in expanded_results]
+    #    expanded_articles = self.db.get_articles_by_ids(expanded_article_ids)
+    #    articles_dict = {a.id: a for a in expanded_articles}
+    #    
+    #    scored_results = []
+    #    for article_id, base_score in expanded_results:
+    #        article = articles_dict.get(article_id)
+    #        if not article:
+    #            continue
+    #            
+    #        # Multi-factor content quality scoring
+    #        content_quality_score = self.content_analyzer.calculate_content_quality(article)
+    #        
+    #        # Content type boost based on configuration
+    #        if article.content_type == ContentType.ANALYSIS:
+    #            content_boost = self.config.background_analysis_boost
+    #        else:  # ContentType.FEATURE
+    #            content_boost = self.config.background_feature_boost
+    #        
+    #        # Combine base score (from graph expansion) with content quality
+    #        final_score = base_score * content_quality_score * content_boost
+    #        scored_results.append((article.id, final_score, article))
+    #    
+    #    scored_results.sort(key=lambda x: x[1], reverse=True)
+    #    return self._create_search_results(scored_results, query, user_profile)[:query.limit]
 
 
     # ============================================================================

@@ -21,15 +21,35 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from src.storage import ArticleDB
 from src.embeddings import EmbeddingSystem
-from src.recommendation_learner import AIRecommender, RecommendationConfig
+from src.recommendation_system import RecommendationSystem, RecommendationConfig
 from src.providers.fixture import FixtureProvider
 from src.utils.ingestion import extract_entities
+from src.utils.helpers import build_bm25_index
 import subprocess
 import sys
 
+# Global shared instances for performance
+_db = None
+_emb = None
+_rec_system = None
+
+def get_recommendation_system():
+    """Get shared recommendation system instance (singleton pattern)"""
+    global _db, _emb, _rec_system
+    if _rec_system is None:
+        print("Initializing recommendation system...")
+        _db = ArticleDB("db/articles.db")
+        _emb = EmbeddingSystem()
+        config = RecommendationConfig(
+            top_k=20
+        )
+        _rec_system = RecommendationSystem(_db, _emb, config)
+        print("Recommendation system ready!")
+    return _rec_system
+
 
 def fetch_and_setup_data(featured_count=20, pool_count=100):
-    """Fetch new articles and setup data"""
+    """Fetch new articles and setup data, calls scripts/ingest_rss.py"""
     print("Fetching latest news and setting up data...")
     print("=" * 50)
     
@@ -95,9 +115,14 @@ def setup_data():
     print("Saving entity relationships...")
     for article in articles:
         if article.entities and len(article.entities) > 0:
-            # Use pre-extracted entities from ingest_rss.py (already processed with spaCy NER)
-            # Entities are stored as (name, type, count) tuples
-            entity_tuples = article.entities
+            # Check if entities are already in tuple format
+            if isinstance(article.entities[0], tuple):
+                # Use pre-extracted entities from ingest_rss.py (already processed with spaCy NER)
+                # Entities are stored as (name, type, count) tuples
+                entity_tuples = article.entities
+            else:
+                # Convert string entities to tuple format
+                entity_tuples = [(name, "UNKNOWN", 1) for name in article.entities]
         else:
             # Fallback: extract entities if none were pre-extracted
             entity_tuples = extract_entities(article)
@@ -105,9 +130,13 @@ def setup_data():
         if entity_tuples:
             db.update_entity_info(article.id, entity_tuples)
     
-    # Build index
+    # Build indexes
     print("Building FAISS index...")
     emb.rebuild_index_from_db(db)
+    
+    print("Building BM25 index...")
+
+    build_bm25_index(db)
     
     print("Setup completed successfully!")
     print()
@@ -127,170 +156,11 @@ def _load_fixture_articles(provider: FixtureProvider, featured_limit: int = 20, 
     return featured_articles, candidate_articles, all_articles_cache
 
 
-def run_demo():
-    """Run the comprehensive AI demo"""
-    print("AI News Demo")
-    print("=" * 60)
-    
-    # Initialize components
-    db = ArticleDB("db/articles.db")
-    emb = EmbeddingSystem()
-    
-    # Check if we have data
-    stats = db.get_stats()
-    if stats['total_articles'] == 0:
-        print("No articles in database!")
-        print()
-        print("Please run setup first:")
-        print("  python scripts/demo.py --setup")
-        print()
-        return
-    
-    print(f"Database has {stats['total_articles']} articles")
-    print()
-    
-    # Demo 1: Embedding Models
-    print("DEMO 1: Multi-Model Embeddings")
-    print("=" * 50)
-    
-    models = emb.get_model_info()
-    print("Available Models:")
-    for name, desc in models.items():
-        print(f"  • {name}: {desc}")
-    print()
-    
-    # Test different models
-    test_text = "Elon Musk announces new Tesla AI features for autonomous driving"
-    print("Encoding test text with different models:")
-    for model_name in ["all-MiniLM-L6-v2", "news-similarity"]:
-        try:
-            embedding = emb.encode_text(test_text, model_name)
-            print(f"  {model_name}: {embedding.shape} - {embedding[:5]}...")
-        except Exception as e:
-            print(f"  {model_name}: Error - {e}")
-    print()
-    
-    # Demo 2: Neural Reranker
-    print("DEMO 2: Neural Reranker")
-    print("=" * 50)
-    
-    config = RecommendationConfig(use_neural_reranker=True)
-    rec = AIRecommender(db, emb, config)
-    
-    print(f"Neural reranker initialized: {rec._neural_reranker is not None}")
-    print(f"Advanced feature extractor ready: {rec._advanced_feature_extractor is not None}")
-    
-    # Train the neural reranker
-    print("Training neural reranker...")
-    rec.train_neural_reranker()
-    print("Training completed successfully!")
-    print()
-    
-    # Demo 3: Enhanced Recommendations
-    print("DEMO 3: Enhanced Recommendations")
-    print("=" * 50)
-    
-    # Get a sample article
-    articles = db.get_recent_articles(limit=1)
-    if not articles:
-        print("No recent articles found.")
-        return
-    
-    seed_article = articles[0]
-    print(f"Seed article: {seed_article.title}")
-    print(f"Source: {seed_article.source.name}")
-    print(f"Published: {seed_article.published_at.strftime('%Y-%m-%d')}")
-    print()
-    
-    # Test different recommendation approaches
-    configs = [
-        ("Basic", RecommendationConfig(use_neural_reranker=False, use_mmr=False)),
-        ("Neural Reranker", RecommendationConfig(use_neural_reranker=True, use_mmr=False)),
-        ("MMR Diversification", RecommendationConfig(use_neural_reranker=False, use_mmr=True)),
-        ("Full Enhanced", RecommendationConfig(use_neural_reranker=True, use_mmr=True))
-    ]
-    
-    for name, config in configs:
-        print(f"{name} Recommendations:")
-        print("-" * 30)
-        
-        rec = AIRecommender(db, emb, config)
-        
-        # Train neural reranker if needed
-        if config.use_neural_reranker:
-            rec.train_neural_reranker()
-        
-        # Get recommendations
-        recommendations = rec.recommend_for_article(seed_article, k=3)
-        
-        for i, (candidate, score) in enumerate(recommendations, 1):
-            explanation = rec.explain_recommendation(seed_article, candidate)
-            print(f"  {i}. {score:.3f} | {candidate.title[:60]}...")
-            print(f"     {explanation}")
-        
-        print()
-    
-    # Demo 4: Multi-Model Fusion
-    print("DEMO 4: Multi-Model Fusion")
-    print("=" * 50)
-    
-    # Test different fusion methods
-    fusion_methods = ["weighted_average", "rank_fusion", "max_score"]
-    models_to_test = ["all-MiniLM-L6-v2", "news-similarity"]
-    
-    for method in fusion_methods:
-        print(f"Fusion Method: {method}")
-        print("-" * 25)
-        
-        # Use multi-model search
-        query_text = f"{seed_article.title} {seed_article.description or ''}"
-        results = emb.multi_model_search(query_text, models=models_to_test, k=3, fusion_method=method)
-        
-        for i, (article_id, score) in enumerate(results, 1):
-            article = db.get_article_by_id(article_id)
-            if article:
-                print(f"  {i}. {score:.3f} | {article.title[:50]}...")
-        
-        print()
-    
-    # Demo 5: Interactive Commands
-    print("DEMO 5: Interactive Commands")
-    print("=" * 50)
-    
-    print("You can now try these interactive commands:")
-    print()
-    
-    # Show available articles
-    recent_articles = db.get_recent_articles(limit=5)
-    print("Recent articles you can test with:")
-    for i, article in enumerate(recent_articles, 1):
-        print(f"  {i}. {article.id} - {article.title[:50]}...")
-    print()
-    
-    print("Try these commands:")
-    print(f"  python scripts/demo.py --recommend --id {seed_article.id}")
-    print(f"  python scripts/demo.py --enhanced --id {seed_article.id}")
-    print(f"  python scripts/demo.py --multi-model --id {seed_article.id}")
-    print()
-    
-    print("Demo completed successfully!")
-    print()
-
-
 def cmd_recommend(article_id: str, k: int = 5):
     """Get basic recommendations for an article"""
-    db = ArticleDB("db/articles.db")
-    emb = EmbeddingSystem()
+    rec = get_recommendation_system()
     
-    # Configure for larger candidate pool
-    config = RecommendationConfig(
-        top_k=20,  # Increased from default 10
-        mmr_pool=100,  # Increased from default 50
-        use_mmr=True
-    )
-    rec = AIRecommender(db, emb, config)
-    
-    article = db.get_article_by_id(article_id)
+    article = rec.db.get_article_by_id(article_id)
     if not article:
         print(f"Article not found: {article_id}")
         return
@@ -311,22 +181,15 @@ def cmd_recommend(article_id: str, k: int = 5):
 
 def cmd_enhanced_recommend(article_id: str, k: int = 5, model_name: str = None):
     """Get enhanced recommendations with neural reranker"""
-    db = ArticleDB("db/articles.db")
-    emb = EmbeddingSystem()
+    rec = get_recommendation_system()
     
     if model_name:
-        emb.switch_model(model_name)
+        rec.embeddings.switch_model(model_name)
     
-    # Configure for larger candidate pool
-    config = RecommendationConfig(
-        top_k=20,  # Increased from default 10
-        mmr_pool=100,  # Increased from default 50
-        use_neural_reranker=True, 
-        use_mmr=True
-    )
-    rec = AIRecommender(db, emb, config)
+    # Enable neural reranker for this command
+    rec.config.use_neural_reranker = True
     
-    article = db.get_article_by_id(article_id)
+    article = rec.db.get_article_by_id(article_id)
     if not article:
         print(f"Article not found: {article_id}")
         return
@@ -334,9 +197,8 @@ def cmd_enhanced_recommend(article_id: str, k: int = 5, model_name: str = None):
     print(f"Enhanced Recommendations for: {article.title}")
     print("=" * 60)
     
-    # Train neural reranker
-    print("Training neural reranker...")
-    rec.train_neural_reranker()
+    # Note: Neural reranker training requires user interaction data
+    print("Using hybrid search with neural reranker configuration...")
     
     recommendations = rec.recommend_for_article(article, k=k)
     for i, (candidate, score) in enumerate(recommendations, 1):
@@ -354,17 +216,9 @@ def cmd_multi_model_recommend(article_id: str, k: int = 5, models: list = None):
     if models is None:
         models = ["all-MiniLM-L6-v2", "news-similarity"]
     
-    db = ArticleDB("db/articles.db")
-    emb = EmbeddingSystem()
+    rec = get_recommendation_system()
     
-    # Configure for larger candidate pool
-    config = RecommendationConfig(
-        top_k=20,  # Increased from default 10
-        mmr_pool=100,  # Increased from default 50
-        use_mmr=True
-    )
-    
-    article = db.get_article_by_id(article_id)
+    article = rec.db.get_article_by_id(article_id)
     if not article:
         print(f"Article not found: {article_id}")
         return
@@ -374,13 +228,13 @@ def cmd_multi_model_recommend(article_id: str, k: int = 5, models: list = None):
     
     # Use multi-model search with larger pool
     query_text = f"{article.title} {article.description or ''}"
-    results = emb.multi_model_search(query_text, models=models, k=k*2, fusion_method="weighted_average")  # Get more to filter out original
+    results = rec.embeddings.multi_model_search(query_text, models=models, k=k*2, fusion_method="weighted_average")  # Get more to filter out original
     
     # Filter out the original article and take top k
     filtered_results = [(aid, score) for aid, score in results if aid != article_id][:k]
     
     for i, (aid, score) in enumerate(filtered_results, 1):
-        candidate = db.get_article_by_id(aid)
+        candidate = rec.db.get_article_by_id(aid)
         if candidate:
             print(f"{i}. {score:.3f} | {candidate.title}")
             print(f"   Source: {candidate.source.name}")

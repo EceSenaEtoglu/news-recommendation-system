@@ -6,8 +6,8 @@ import math
 import numpy as np
 from datetime import datetime, timezone
 from typing import List, Tuple, Dict, Optional
-from data_models import Article, UserProfile
-from config import RAGConfig
+from src.data_models import Article, UserProfile
+from src.config import RAGConfig
 
 
 class ScoringEngine:
