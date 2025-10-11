@@ -1,0 +1,6 @@
+mmh3
+pandas
+simhash
+scikit-learn
+torch
+transformers[torch]

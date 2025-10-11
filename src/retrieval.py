@@ -2,18 +2,19 @@ import math
 import os
 import pickle
 import time
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import List, Dict, Tuple, Optional
 from dataclasses import dataclass
 from rank_bm25 import BM25Okapi
+from utils.helpers import rrf
 
-from .data_models import Article, UserProfile, SearchQuery, SearchResult, ContentType
-from .config import RAGConfig
-from .storage import ArticleDB
-from .embeddings import EmbeddingSystem
-from .scoring import ScoringEngine
-from .content_analysis import ContentQualityAnalyzer
-from .reranker import RerankingEngine
+from data_models import Article, UserProfile, SearchQuery, SearchResult, ContentType
+from config import RAGConfig
+from storage import ArticleDB
+from embeddings import EmbeddingSystem
+from scoring import ScoringEngine
+from utils.content_analysis import ContentQualityAnalyzer
+from reranker import RerankingEngine
 import spacy
 _NER = spacy.load("en_core_web_sm")
 
@@ -135,7 +136,7 @@ class MultiRAGRetriever:
             cache_data = {
                 'index': self.bm25_index,
                 'articles': self.bm25_articles,
-                'created_at': datetime.now(datetime.timezone.utc).isoformat()
+                'created_at': datetime.now(timezone.utc).isoformat()
             }
             with open(self.bm25_cache_path, 'wb') as f:
                 pickle.dump(cache_data, f)
@@ -150,6 +151,7 @@ class MultiRAGRetriever:
 
     # Route to appropriate RAG strategy based on query type
     # TODO routing mechanism should be enhanced!
+    # defaılts to hybrid rag for now
     async def search(self, query: SearchQuery, user_profile: Optional[UserProfile] = None) -> List[SearchResult]:
         """Main search function with performance monitoring. Uses query routing mechanism"""
         start_time = time.time()
@@ -160,14 +162,11 @@ class MultiRAGRetriever:
             # "Background pieces" = explanatory journalism that provides context
             # None = use hybrid RAG (default for MVP)
 
-            if query.query_type:
             if query.query_type == "breaking":
                 results = await self._breaking_news_rag(query, user_profile)
             elif query.query_type == "background": 
                 results = await self._background_analysis_rag(query, user_profile)
-                else:
-                    results = await self._hybrid_rag(query, user_profile)
-
+            # DEFAULT FOR THE MVP
             else:
                 results = await self._hybrid_rag(query, user_profile)
             
@@ -186,62 +185,58 @@ class MultiRAGRetriever:
     # ============================================================================
 
     async def _hybrid_rag(self, query: SearchQuery, user_profile: Optional[UserProfile]) -> List[SearchResult]:
-        """Enhanced Hybrid RAG with cross-encoder and graph features"""
-        
-        # Step 1: BM25 Search (lexical)
-        bm25_results = self._bm25_search(query.text, limit=50)
-        
-        # Step 2: Semantic Search (dense embeddings)
-        # 
-        semantic_results = self._semantic_search(query.text, limit=50)
-        
-        # Step 3: Combine scores based on weight configs in RagConfig (Hybrid RAG)
-        # returns (article_id, final_score) sorted based on final_score. final_score is in range [0,1]
-        combined_results = self._combine_hybrid_scores(bm25_results, semantic_results)
-        
-        # Step 4: Graph RAG - Entity-based expansion (optional)
+
+        # 1) Retrieve (high depths for recall)
+        bm25_results = self._bm25_search(query.text, self.config.BM25_K)
+        semantic_results = self._semantic_search(query.text, self.config.DENSE_K)
+
+        # 2) Hybrid candidate pooling via RRF
+        pooled = self._pool_with_rrf(bm25_results, semantic_results,k_rrf=self.config.RRF_K,k_pool=self.config.POOL_K)  # -> [(doc_id, rrf_score)] desc
+
+        # 3) Optional graph expansion
         if self.config.enable_graph_rag:
-            expanded_results = await self._apply_graph_expansion(query.text, combined_results)
-        else:
-            expanded_results = combined_results
-        
-        # Step 5: Cross-encoder reranking (Self-RAG)
+            pooled = await self._apply_graph_expansion_over_pool(query.text, pooled)
+            pooled = pooled[:self.config.POOL_K]  # re-cap after expansion
+
+        # 4) Cross-encoder re-ranking (precision)
         if self.config.enable_cross_encoder:
-            # Get articles for reranking
-            article_ids = [aid for aid, _ in expanded_results[:20]]
-            articles = self.db.get_articles_by_ids(article_ids)
+            # slice BEFORE DB/CE work
+            candidate_ids = [doc_id for doc_id, _ in pooled[:self.config.CE_K]]
+
+            # fetch only what you will score
+            articles = self.db.get_articles_by_ids(candidate_ids)
             articles_dict = {a.id: a for a in articles}
-            reranked_results = await self.reranking_engine.apply_cross_encoder_rerank(
-                query.text, expanded_results[:20], articles_dict)
-        else:
-            reranked_results = expanded_results
-        
-        # Step 6: Apply freshness weighting (Freshness-aware RAG)
-        article_ids = [aid for aid, _ in reranked_results]
-        articles = self.db.get_articles_by_ids(article_ids)
-        articles_dict = {a.id: a for a in articles}
-        fresh_results = self.scoring_engine.apply_freshness_boost(reranked_results, articles_dict)
-        
-        # Step 7: Apply user personalization (Memory RAG)  
+
+            # CE-only ordering: returns [(id, ce_logit)] desc
+            ce_ranked = await self.reranking_engine.apply_cross_encoder_reranking(
+                query.text, candidate_ids, articles_dict, limit=self.config.CE_K
+            )
+            pooled= ce_ranked
+   
+
+        # TODO
+        # 5) Personalization, does not exist for MVP
         if user_profile:
             user_id = getattr(user_profile, "user_id", None) or "default"
             user_prefs = self.db.get_user_prefs(user_id)
             personalized_results = self.scoring_engine.apply_user_preferences(
-                fresh_results, user_profile, articles_dict, user_prefs)
+                pooled, user_profile, articles_dict, user_prefs
+            )
         else:
-            personalized_results = fresh_results
-        
-        # Step 8: Optional MMR diversification, then ensure source diversity
+            personalized_results = pooled
+
+        # 7) Diversification / balance
+        final_k = getattr(self.config, "final_k", max(100, len(personalized_results)))
         diversified_results = self.reranking_engine.apply_mmr_diversification(
-            personalized_results, top_k=100, articles_dict=articles_dict)
-        balanced_results = self.scoring_engine.ensure_balance_and_diversity(
-            diversified_results, articles_dict)
-        
-        # Step 9: Convert to SearchResult objects
-        final_results = self._create_search_results(balanced_results, query, user_profile)
-        
+            personalized_results, top_k=min(final_k, len(personalized_results)), articles_dict=articles_dict
+        )
+ 
+        # 8) Materialize output
+        final_results = self._create_search_results(diversified_results, query, user_profile)
         return final_results[:query.limit]
 
+    
+    # TODO currently not called as the routing mech is not implemented yet
     # looks at recent news articles, 6 hours old max
     # adds urgency score and freshness score to boost articles
     # TODO currently does not implement ANY user preference or similarity of articles or entity expansion
@@ -256,7 +251,7 @@ class MultiRAGRetriever:
         scored_results = []
         for article in recent_articles:
             urgency_score = article.urgency_score
-            hours_old = (datetime.now(datetime.timezone.utc)- article.published_at).total_seconds() / 3600
+            hours_old = (datetime.now(timezone.utc)- article.published_at).total_seconds() / 3600
             freshness_score = max(0, 1 - (hours_old / 6))
             
             final_score = (urgency_score * RAGConfig.breaking_news_urgency_coeff)+ (freshness_score * RAGConfig.breaking_news_freshness_coeff)
@@ -266,6 +261,7 @@ class MultiRAGRetriever:
         scored_results.sort(key=lambda x: x[1], reverse=True)
         return self._create_search_results(scored_results, query, user_profile)[:query.limit]
     
+    # TODO currently not called as the routing mech is not implemented yet
     # prioritizes content quality over freshness, looks at the articles from last week
     # uses graph RAG to expand the results
     # no similarity of articles
@@ -320,11 +316,12 @@ class MultiRAGRetriever:
     # ============================================================================
     
     def _bm25_search(self, query: str, limit: int = 50) -> List[Tuple[str, float]]:
-        """BM25 keyword search"""
+        """BM25 keyword search, returns descending sorted [(article_id,score)]"""
         if not self.bm25_index:
             return []
         
         q_tokens = _tokenize(query)
+        
         # returns one score for each article in the index
         # scores is a list of length len(bm25_articles)
         scores = self.bm25_index.get_scores(q_tokens)
@@ -350,35 +347,31 @@ class MultiRAGRetriever:
         except Exception as e:
             print(f" Semantic search failed: {e}")
             return []
+        
+    def _pool_with_rrf(self, bm25_results, dense_results, k_rrf: int = 60, k_pool: int = 300):
+        """
+        Build a candidate pool from BM25 & dense retrievers using Reciprocal Rank Fusion (RRF).
+        Returns a list of (doc_id, rrf_score) sorted by rrf_score desc.
+        DO NOT use this order as final ranking; it's only for candidate selection.
+        """
+        # results are [(id, score)], sorted desc per retriever
+        bm25_ids = [doc_id for doc_id, _ in bm25_results]
+        dense_ids = [doc_id for doc_id, _ in dense_results]
+        all_ids = list(dict.fromkeys(bm25_ids + dense_ids))  # stable union, dedup
 
-    def _combine_hybrid_scores(self, bm25_results: List[Tuple[str, float]], 
-                              semantic_results: List[Tuple[str, float]]) -> List[Tuple[str, float]]:
-        """Combine BM25 and semantic scores based on configured weighting combinations in self.config"""
-        
-        # normalize to 0-1 range
-        # assumes input scores are positive
-        def normalize_scores(results):
-            if not results:
-                return {}
-            max_score = max(score for _, score in results)
-            if max_score == 0:
-                return {}
-            return {article_id: score/max_score for article_id, score in results}
-        
-        bm25_norm = normalize_scores(bm25_results)
-        semantic_norm = normalize_scores(semantic_results)
-        
-        all_ids = set(bm25_norm.keys()) | set(semantic_norm.keys())
-        
-        combined = []
-        for article_id in all_ids:
-            bm25_score = bm25_norm.get(article_id, 0) * self.config.bm25_weight
-            semantic_score = semantic_norm.get(article_id, 0) * self.config.semantic_weight
-            
-            final_score = bm25_score + semantic_score
-            combined.append((article_id, final_score))
-        
-        return sorted(combined, key=lambda x: x[1], reverse=True)
+        # Build per-retriever ranks (1-based)
+        bm25_rank = {doc_id: i+1 for i, doc_id in enumerate(bm25_ids)}
+        dense_rank = {doc_id: i+1 for i, doc_id in enumerate(dense_ids)}
+
+        pooled = []
+        for doc_id in all_ids:
+            s = 0.0
+            if doc_id in bm25_rank: s += rrf(bm25_rank[doc_id],k_rrf)
+            if doc_id in dense_rank: s += rrf(dense_rank[doc_id],k_rrf)
+            pooled.append((doc_id, s))
+
+        pooled.sort(key=lambda x: x[1], reverse=True)
+        return pooled[:k_pool]
 
 
     # ============================================================================
@@ -386,48 +379,57 @@ class MultiRAGRetriever:
     # ============================================================================
 
     async def _apply_graph_expansion(self, query: str, results: List[Tuple[str, float]]) -> List[Tuple[str, float]]:
+        """
+        Simplified Graph RAG: Find related articles using entity relationships
+        
+        Core idea: 
+        1. Extract entities from query
+        2. Find entities that co-occur with query entities  
+        3. Boost articles mentioning these related entities
+        """
         if not results:
             return results
 
-        # 1) seed entities from query (preferred)
-        seed = set(self._ner_entities_from_text(query))
-
-        # 2) if none, bootstrap from entities in top docs
-        if not seed:
+        # 1) Extract entities from query using spaCy NER
+        seed_entities = set(self._ner_entities_from_text(query))
+        
+        # 2) If no entities in query, use entities from top results
+        if not seed_entities:
             top_ids = [aid for aid, _ in results[:5]]
-            arts = self.db.get_articles_by_ids(top_ids)
-            for a in arts:
-                for e in (a.entities or []):
-                    seed.add(e)
-            seed = set(list(seed)[:5])
-        if not seed:
+            articles = self.db.get_articles_by_ids(top_ids)
+            for article in articles:
+                if article.entities:
+                    seed_entities.update(article.entities[:3])  # Limit to 3 entities per article
+            seed_entities = list(seed_entities)[:5]  # Limit total seed entities
+        
+        if not seed_entities:
             return results
 
-        # 3) neighbors by co-mention counts (uses new storage helpers)
-        neighbors = self.db.get_comention_counts(list(seed), limit=50)
-        neighbor_bonus = {name: min(0.3, 0.02*c) for name, c in neighbors.items()}
+        # 3) Find related entities that co-occur with seed entities
+        related_entities = self.db.get_comention_counts(list(seed_entities), limit=20)
+        
+        # 4) Get articles mentioning seed or related entities
+        all_entities = list(seed_entities) + list(related_entities.keys())[:10]  # Top 10 related
+        graph_articles = self.db.get_articles_by_entities(all_entities, limit=50, hours_back=24*7)
 
-        # 4) fetch more docs mentioning seeds or strong neighbors
-        expand_terms = list(seed) + [n for n, _ in sorted(neighbors.items(), key=lambda x: -x[1])[:10]]
-        graph_docs = self.db.get_articles_by_entities(expand_terms, limit=80, hours_back=24*7)
+        # 5) Apply simple scoring boost
+        base_scores = {doc_id: score for doc_id, score in results}
+        
+        for article in graph_articles:
+            article_entities = set(article.entities or [])
+            
+            # Boost if article mentions seed entities
+            seed_overlap = len(seed_entities & article_entities)
+            if seed_overlap > 0:
+                boost = 0.2 * seed_overlap  # Simple linear boost
+                base_scores[article.id] = base_scores.get(article.id, 0) + boost
+            
+            # Add new articles discovered through graph
+            elif article.id not in base_scores:
+                base_scores[article.id] = 0.1  # Small base score for graph-discovered articles
 
-        # 5) score boost: overlap + neighbor strength
-        base = {aid: s for aid, s in results}
-        from collections import Counter
-        scored = Counter(base)
-
-        for a in graph_docs:
-            eid_names = set(a.entities or [])
-            overlap = len(seed & eid_names)
-            if overlap:
-                scored[a.id] += self.config.entity_boost_weight * min(0.3, 0.1*overlap)
-            nb = sum(neighbor_bonus.get(e, 0.0) for e in eid_names)
-            if nb:
-                scored[a.id] += self.config.entity_boost_weight * nb
-            if a.id not in base and (overlap or nb):
-                scored[a.id] += 0.25  # small base for graph-discovered docs
-
-        return sorted(scored.items(), key=lambda x: x[1], reverse=True)
+        # Return sorted results
+        return sorted(base_scores.items(), key=lambda x: x[1], reverse=True)
 
 
     def _ner_entities_from_text(self, text: str) -> list[str]:
@@ -529,35 +531,38 @@ class MultiRAGRetriever:
        
        return search_results
    
-    # TODO use a gpt to create a detailed explanation
     def _generate_explanation(self, article: Article, query: SearchQuery, 
                              user_profile: Optional[UserProfile]) -> str:
-        """Generate explanation for recommendations"""
+        """Generate simple explanation for recommendations - easy to explain in interviews"""
         reasons = []
         
+        # Check if query terms appear in title
         if query.text.lower() in article.title.lower():
             reasons.append("matches your search terms")
         
-        hours_old = (datetime.now(datetime.timezone.utc) - article.published_at).total_seconds() / 3600
+        # Check freshness
+        hours_old = (datetime.now(timezone.utc) - article.published_at).total_seconds() / 3600
         if hours_old < 6:
             reasons.append("breaking news")
         elif hours_old < 24:
             reasons.append("recent coverage")
         
+        # Check content type
         if article.content_type == ContentType.ANALYSIS:
             reasons.append("in-depth analysis")
         elif article.content_type == ContentType.BREAKING_NEWS:
             reasons.append("breaking news alert")
         
+        # Check source credibility
         if article.source.credibility_score > 0.8:
             reasons.append("from trusted source")
             
-        # Entity explanation: show up to two seed entities present in this article
-        seed = set(self._ner_entities_from_text(query.text))
-        if seed and article.entities:
-            inter = [e for e in article.entities if e in seed][:2]
-            if inter:
-                reasons.append(f"mentions {', '.join(inter)}")
+        # Show entity overlap (Graph RAG feature)
+        seed_entities = set(self._ner_entities_from_text(query.text))
+        if seed_entities and article.entities:
+            overlapping_entities = [e for e in article.entities if e in seed_entities][:2]
+            if overlapping_entities:
+                reasons.append(f"mentions {', '.join(overlapping_entities)}")
 
         return f"Recommended because: {', '.join(reasons[:3])}" if reasons else "Relevant content"
     

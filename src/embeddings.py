@@ -5,8 +5,8 @@ import faiss
 from sentence_transformers import SentenceTransformer
 from typing import List, Tuple, Optional, Dict, Union
 from dataclasses import dataclass
-from .data_models import Article
-from .config import EmbeddingModelConfig
+from data_models import Article
+from config import EmbeddingModelConfig
 
 class EmbeddingSystem:
     """Handles embeddings and semantic search using FAISS with multi-model support"""
@@ -176,7 +176,8 @@ class EmbeddingSystem:
                        model_name: Optional[str] = None) -> List[Tuple[str, float]]:
         """Semantic search using FAISS, provides min k candidates that match given threshold
         If no threshold specified, default filters out negative cosine similarities,
-        ensuring only semantically similar (not opposite) articles are returned."""
+        ensuring only semantically similar (not opposite) articles are returned.
+        returns descending sorted [(article_id,score)]"""
         if self.index is None or self.index.ntotal == 0:
             return []
         
@@ -188,7 +189,6 @@ class EmbeddingSystem:
         
         # Search
         # query embedding must be shape (1, d)
-
         scores, indices = self.index.search(query_embedding, min(k, self.index.ntotal))
         
         results = []
@@ -332,7 +332,7 @@ class EmbeddingSystem:
 def build_embeddings_from_db(db_path: str = "db/articles.db"):
     """Utility function to build embeddings from existing database"""
     # Deferred import to avoid circular dependency at module import time
-    from .storage import ArticleDB  
+    from storage import ArticleDB  
     db = ArticleDB(db_path)
     embeddings = EmbeddingSystem()
     

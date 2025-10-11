@@ -9,10 +9,10 @@ import torch
 import torch.nn as nn
 from sklearn.model_selection import train_test_split
 
-from .data_models import Article
-from .storage import ArticleDB
-from .embeddings import EmbeddingSystem
-from .config import RerankFeatureConfig, NeuralRerankerConfig, RAGConfig
+from data_models import Article
+from storage import ArticleDB
+from embeddings import EmbeddingSystem
+from config import RerankFeatureConfig, NeuralRerankerConfig, RAGConfig
 
 
 class RerankFeatureExtractor:
@@ -527,53 +527,57 @@ class RerankingEngine:
 
         return final_pairs
     
-    async def apply_cross_encoder_reranking(self, query: str, results: List[Tuple[str, float]], 
-                                          articles_dict: Dict[str, Article]) -> List[Tuple[str, float]]:
-        """Self-RAG: Rerank results using cross-encoder"""
-        if not self.cross_encoder or not results:
-            return results
-        
-        try:
-            # Prepare query-article pairs for cross-encoder
-            pairs = []
-            valid_results = []
-            
-            for article_id, original_score in results:
-                article = articles_dict.get(article_id)
-                if article:
-                    # Combine title and description for reranking
-                    article_text = f"{article.title} {article.description or ''}"
-                    pairs.append([query, article_text])
-                    valid_results.append((article_id, original_score))
-            
-            if not pairs:
-                return results
-            
-            # Get cross-encoder scores
-            cross_scores = self.cross_encoder.predict(pairs)
-            
-            # Combine original scores with cross-encoder scores
-            reranked_results = []
-            for i, (article_id, original_score) in enumerate(valid_results):
-                cross_score = cross_scores[i]
-                
-                # Weighted combination
-                combined_score = (
-                    original_score * (1 - self.config.cross_encoder_weight) +
-                    cross_score * self.config.cross_encoder_weight
-                )
-                reranked_results.append((article_id, combined_score))
-            
-            # Sort by combined score
-            reranked_results.sort(key=lambda x: x[1], reverse=True)
-            
-            print(f" Cross-encoder reranked {len(reranked_results)} results")
-            return reranked_results
-            
-        except Exception as e:
-            print(f" Cross-encoder reranking failed: {e}")
-            return results
+    async def apply_cross_encoder_reranking(self,query: str,candidate_ids: List[str],articles_dict: Dict[str, "Article"],limit: int,) -> List[Tuple[str, float]]:
+        """
+        - candidate_ids: IDs to score (already capped upstream to CE_K).
+        - articles_dict: id -> Article (pre-fetched).
+        - limit: safety cap (usually == CE_K).
+        Returns:
+        - [(article_id, ce_logit)] sorted desc by ce_logit.
+        """
+        if not self.cross_encoder or not candidate_ids:
+            return [(cid, 0.0) for cid in candidate_ids]
 
+        # Slice to limit (top-CE_K) BEFORE building pairs 
+        candidate_ids = candidate_ids[:limit]
+
+        pairs, kept_ids = [], []
+        for article_id in candidate_ids:
+            article = articles_dict.get(article_id)
+            if not article:
+                continue
+            
+            #Build text for CE 
+            title = article.title or ""
+            description = article.description or ""
+            body = article.content or ""
+
+            # Combine
+            article_text = f"{title}. {description} {body}".strip()
+            
+            if not article_text:
+                continue
+            pairs.append([query, article_text])
+            kept_ids.append(article_id)
+
+        if not pairs:
+            return []
+
+        # Get cross-encoder logits
+        ce_logits = self.cross_encoder.predict(pairs)
+
+        # Map ids -> ce score
+        ce_articles = [(kept_ids[i], float(ce_logits[i])) for i in range(len(ce_logits))]
+
+        # Sort by CE score (descending) — 
+        ce_articles.sort(key=lambda x: x[1], reverse=True)
+
+        # Debug/log
+        print(f"Cross-encoder reranked {len(ce_articles)} results (limit={limit})")
+
+        return ce_articles
+
+            
 
 def build_training_data_from_events(
     db: ArticleDB,

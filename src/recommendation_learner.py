@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import List, Tuple, Optional, Dict
+from datetime import datetime, timezone
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -206,7 +207,7 @@ class AIRecommender:
             reasons.append(f"overlap topics: {', '.join(inter[:2])}")
         # Recency
         try:
-            hours_old = (datetime.utcnow() - candidate.published_at.replace(tzinfo=datetime.timezone.utc).astimezone(datetime.timezone.utc)).total_seconds() / 3600.0
+            hours_old = (datetime.now(timezone.utc) - candidate.published_at.replace(tzinfo=timezone.utc).astimezone(timezone.utc)).total_seconds() / 3600.0
         except Exception:
             # fallback naive
             hours_old = 9999

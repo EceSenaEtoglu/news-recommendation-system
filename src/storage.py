@@ -1,8 +1,8 @@
 import sqlite3
 import json
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import List, Optional, Dict
-from .data_models import Article, Source, ContentType, SourceCategory, SubmissionModel
+from data_models import Article, Source, ContentType, SourceCategory, SubmissionModel
 
 # TODO for simplicity did not use ORM, use ORM in the future
 class ArticleDB:
@@ -619,7 +619,7 @@ class ArticleDB:
             e_rows = conn.execute(f"SELECT id FROM entities WHERE name IN ({placeholders})", entities).fetchall()
             if not e_rows: return []
             eids = [r[0] for r in e_rows]
-            cutoff = (datetime.now(datetime.timezone.utc)- timedelta(hours=hours_back)).isoformat()
+            cutoff = (datetime.now(timezone.utc)- timedelta(hours=hours_back)).isoformat()
             placeholders2 = ",".join("?" for _ in eids)
             rows = conn.execute(f"""
                 SELECT a.*

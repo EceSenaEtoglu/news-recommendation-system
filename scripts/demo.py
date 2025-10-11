@@ -23,7 +23,7 @@ from src.storage import ArticleDB
 from src.embeddings import EmbeddingSystem
 from src.recommendation_learner import AIRecommender, RecommendationConfig
 from src.providers.fixture import FixtureProvider
-from src.ingestion import extract_entities
+from src.utils.ingestion import extract_entities
 import subprocess
 import sys
 

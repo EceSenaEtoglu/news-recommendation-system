@@ -6,8 +6,8 @@ import math
 import numpy as np
 from datetime import datetime, timezone
 from typing import List, Tuple, Dict, Optional
-from .data_models import Article, UserProfile
-from .config import RAGConfig
+from data_models import Article, UserProfile
+from config import RAGConfig
 
 
 class ScoringEngine:
@@ -15,27 +15,6 @@ class ScoringEngine:
     
     def __init__(self, config: RAGConfig):
         self.config = config
-    
-    def apply_freshness_boost(self, results: List[Tuple[str, float]], 
-                            articles_dict: Dict[str, Article]) -> List[Tuple[str, float]]:
-        """Apply time decay boost with batch database query"""
-        if not results:
-            return results
-        
-        boosted_results = []
-        
-        for article_id, score in results:
-            article = articles_dict.get(article_id)
-            if not article:
-                continue
-            
-            hours_old = (datetime.now(timezone.utc) - article.published_at).total_seconds() / 3600
-            freshness_factor = math.exp(-hours_old / self.config.freshness_decay_hours)
-            
-            boosted_score = score + (freshness_factor * self.config.freshness_weight)
-            boosted_results.append((article_id, boosted_score))
-        
-        return sorted(boosted_results, key=lambda x: x[1], reverse=True)
     
     def apply_user_preferences(self, results: List[Tuple[str, float]], 
                              user_profile: UserProfile,
@@ -141,25 +120,3 @@ class ScoringEngine:
 
         return sorted(scored, key=lambda x: x[1], reverse=True)
     
-    def ensure_balance_and_diversity(self, results: List[Tuple[str, float]], 
-                                   articles_dict: Dict[str, Article]) -> List[Tuple[str, float]]:
-        """Ensure source diversity with batch database query"""
-        if len(results) < 5:
-            return results
-        
-        balanced_results = []
-        seen_sources = set()
-        
-        for article_id, score in results:
-            article = articles_dict.get(article_id)
-            if not article:
-                continue
-            
-            if (article.source.id not in seen_sources or 
-                len(balanced_results) < self.config.min_sources):
-                balanced_results.append((article_id, score))
-                seen_sources.add(article.source.id)
-            elif len(balanced_results) >= self.config.min_sources:
-                balanced_results.append((article_id, score))
-        
-        return balanced_results

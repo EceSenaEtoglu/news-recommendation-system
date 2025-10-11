@@ -1,0 +1,631 @@
+{
+  "metadata": {
+    "evaluation_date": "2025-10-10T22:30:12.906828",
+    "total_queries": 68,
+    "positive_queries": 38,
+    "negative_queries": 30,
+    "spiced_pairs": 1049,
+    "topics": [
+      "politics",
+      "culture",
+      "economics",
+      "crimes",
+      "disasters",
+      "science",
+      "sports"
+    ],
+    "train_pairs": 2215,
+    "test_pairs": 1049,
+    "positive_ratio": 0.28026692087702576
+  },
+  "similarity_detection": {
+    "queries": [
+      {
+        "query_id": "spiced_0",
+        "topic": "politics",
+        "rank": 1,
+        "hit@1": 0,
+        "hit@3": 1,
+        "hit@10": 1,
+        "binary_prediction": 1,
+        "query_time": 2.2424824237823486,
+        "retrieved_count": 5
+      },
+      {
+        "query_id": "spiced_1",
+        "topic": "politics",
+        "rank": 1,
+        "hit@1": 0,
+        "hit@3": 1,
+        "hit@10": 1,
+        "binary_prediction": 1,
+        "query_time": 2.3847222328186035,
+        "retrieved_count": 5
+      },
+      {
+        "query_id": "spiced_2",
+        "topic": "culture",
+        "rank": 1,
+        "hit@1": 0,
+        "hit@3": 1,
+        "hit@10": 1,
+        "binary_prediction": 1,
+        "query_time": 2.1813018321990967,
+        "retrieved_count": 5
+      },
+      {
+        "query_id": "spiced_3",
+        "topic": "economics",
+        "rank": 4,
+        "hit@1": 0,
+        "hit@3": 0,
+        "hit@10": 1,
+        "binary_prediction": 1,
+        "query_time": 0.9267301559448242,
+        "retrieved_count": 5
+      },
+      {
+        "query_id": "spiced_4",
+        "topic": "crimes",
+        "rank": 1,
+        "hit@1": 0,
+        "hit@3": 1,
+        "hit@10": 1,
+        "binary_prediction": 1,
+        "query_time": 2.1846938133239746,
+        "retrieved_count": 5
+      },
+      {
+        "query_id": "spiced_5",
+        "topic": "disasters",
+        "rank": 1,
+        "hit@1": 0,
+        "hit@3": 1,
+        "hit@10": 1,
+        "binary_prediction": 1,
+        "query_time": 0.920424222946167,
+        "retrieved_count": 5
+      },
+      {
+        "query_id": "spiced_6",
+        "topic": "science",
+        "rank": 1,
+        "hit@1": 0,
+        "hit@3": 1,
+        "hit@10": 1,
+        "binary_prediction": 1,
+        "query_time": 2.4851317405700684,
+        "retrieved_count": 5
+      },
+      {
+        "query_id": "spiced_7",
+        "topic": "sports",
+        "rank": 1,
+        "hit@1": 0,
+        "hit@3": 1,
+        "hit@10": 1,
+        "binary_prediction": 1,
+        "query_time": 0.5436680316925049,
+        "retrieved_count": 5
+      },
+      {
+        "query_id": "spiced_8",
+        "topic": "economics",
+        "rank": null,
+        "hit@1": 0,
+        "hit@3": 0,
+        "hit@10": 0,
+        "binary_prediction": 0,
+        "query_time": 3.0875420570373535,
+        "retrieved_count": 5
+      },
+      {
+        "query_id": "spiced_9",
+        "topic": "disasters",
+        "rank": 1,
+        "hit@1": 0,
+        "hit@3": 1,
+        "hit@10": 1,
+        "binary_prediction": 1,
+        "query_time": 2.3118512630462646,
+        "retrieved_count": 5
+      },
+      {
+        "query_id": "spiced_10",
+        "topic": "politics",
+        "rank": 2,
+        "hit@1": 0,
+        "hit@3": 1,
+        "hit@10": 1,
+        "binary_prediction": 1,
+        "query_time": 1.8559930324554443,
+        "retrieved_count": 5
+      },
+      {
+        "query_id": "spiced_11",
+        "topic": "disasters",
+        "rank": 0,
+        "hit@1": 1,
+        "hit@3": 1,
+        "hit@10": 1,
+        "binary_prediction": 1,
+        "query_time": 0.668809175491333,
+        "retrieved_count": 5
+      },
+      {
+        "query_id": "spiced_12",
+        "topic": "crimes",
+        "rank": 1,
+        "hit@1": 0,
+        "hit@3": 1,
+        "hit@10": 1,
+        "binary_prediction": 1,
+        "query_time": 1.3571701049804688,
+        "retrieved_count": 5
+      },
+      {
+        "query_id": "spiced_13",
+        "topic": "culture",
+        "rank": 1,
+        "hit@1": 0,
+        "hit@3": 1,
+        "hit@10": 1,
+        "binary_prediction": 1,
+        "query_time": 1.127194881439209,
+        "retrieved_count": 5
+      },
+      {
+        "query_id": "spiced_14",
+        "topic": "crimes",
+        "rank": 1,
+        "hit@1": 0,
+        "hit@3": 1,
+        "hit@10": 1,
+        "binary_prediction": 1,
+        "query_time": 4.197424650192261,
+        "retrieved_count": 5
+      }
+    ],
+    "topic_performance": {
+      "politics": {
+        "MRR": 0.4444444444444444,
+        "Hit@3": 1.0,
+        "n": 3
+      },
+      "culture": {
+        "MRR": 0.5,
+        "Hit@3": 1.0,
+        "n": 2
+      },
+      "economics": {
+        "MRR": 0.2,
+        "Hit@3": 0.0,
+        "n": 2
+      },
+      "crimes": {
+        "MRR": 0.5,
+        "Hit@3": 1.0,
+        "n": 3
+      },
+      "disasters": {
+        "MRR": 0.6666666666666666,
+        "Hit@3": 1.0,
+        "n": 3
+      },
+      "science": {
+        "MRR": 0.5,
+        "Hit@3": 1.0,
+        "n": 1
+      },
+      "sports": {
+        "MRR": 0.5,
+        "Hit@3": 1.0,
+        "n": 1
+      }
+    },
+    "overall_metrics": {
+      "MRR": 0.5023809523809524,
+      "Hit@1": 0.06666666666666667,
+      "Hit@3": 0.8666666666666667,
+      "Hit@10": 0.9333333333333333,
+      "avg_query_time": 1.8983426411946616
+    },
+    "binary_classification": {
+      "precision": 1.0,
+      "recall": 0.9333333333333333,
+      "f1_score": 0.9655172413793104,
+      "accuracy": 0.9333333333333333,
+      "true_positives": 14,
+      "false_positives": 0,
+      "true_negatives": 0,
+      "false_negatives": 1
+    }
+  },
+  "negative_detection": {
+    "queries": [
+      {
+        "query_id": "negative_294",
+        "topic": "politics",
+        "pair_type": "intertopic_neg",
+        "rank": null,
+        "false_positive": 0,
+        "query_time": 0.0,
+        "retrieved_count": 5
+      },
+      {
+        "query_id": "negative_295",
+        "topic": "politics",
+        "pair_type": "intertopic_neg",
+        "rank": null,
+        "false_positive": 0,
+        "query_time": 0.0,
+        "retrieved_count": 5
+      },
+      {
+        "query_id": "negative_296",
+        "topic": "culture",
+        "pair_type": "intertopic_neg",
+        "rank": null,
+        "false_positive": 0,
+        "query_time": 0.0,
+        "retrieved_count": 5
+      },
+      {
+        "query_id": "negative_297",
+        "topic": "economics",
+        "pair_type": "intertopic_neg",
+        "rank": null,
+        "false_positive": 0,
+        "query_time": 0.0,
+        "retrieved_count": 5
+      },
+      {
+        "query_id": "negative_298",
+        "topic": "crimes",
+        "pair_type": "intertopic_neg",
+        "rank": null,
+        "false_positive": 0,
+        "query_time": 0.0,
+        "retrieved_count": 5
+      },
+      {
+        "query_id": "negative_299",
+        "topic": "disasters",
+        "pair_type": "intertopic_neg",
+        "rank": null,
+        "false_positive": 0,
+        "query_time": 0.0,
+        "retrieved_count": 5
+      },
+      {
+        "query_id": "negative_300",
+        "topic": "science",
+        "pair_type": "intertopic_neg",
+        "rank": null,
+        "false_positive": 0,
+        "query_time": 0.0,
+        "retrieved_count": 5
+      },
+      {
+        "query_id": "negative_301",
+        "topic": "sports",
+        "pair_type": "intertopic_neg",
+        "rank": null,
+        "false_positive": 0,
+        "query_time": 0.0,
+        "retrieved_count": 5
+      },
+      {
+        "query_id": "negative_302",
+        "topic": "economics",
+        "pair_type": "intertopic_neg",
+        "rank": null,
+        "false_positive": 0,
+        "query_time": 0.0,
+        "retrieved_count": 5
+      },
+      {
+        "query_id": "negative_303",
+        "topic": "disasters",
+        "pair_type": "intertopic_neg",
+        "rank": null,
+        "false_positive": 0,
+        "query_time": 0.0,
+        "retrieved_count": 5
+      },
+      {
+        "query_id": "negative_304",
+        "topic": "politics",
+        "pair_type": "intertopic_neg",
+        "rank": null,
+        "false_positive": 0,
+        "query_time": 0.0,
+        "retrieved_count": 5
+      },
+      {
+        "query_id": "negative_305",
+        "topic": "disasters",
+        "pair_type": "intertopic_neg",
+        "rank": null,
+        "false_positive": 0,
+        "query_time": 0.0,
+        "retrieved_count": 5
+      },
+      {
+        "query_id": "negative_306",
+        "topic": "crimes",
+        "pair_type": "intertopic_neg",
+        "rank": null,
+        "false_positive": 0,
+        "query_time": 0.0,
+        "retrieved_count": 5
+      },
+      {
+        "query_id": "negative_307",
+        "topic": "culture",
+        "pair_type": "intertopic_neg",
+        "rank": null,
+        "false_positive": 0,
+        "query_time": 0.0,
+        "retrieved_count": 5
+      },
+      {
+        "query_id": "negative_308",
+        "topic": "crimes",
+        "pair_type": "intertopic_neg",
+        "rank": null,
+        "false_positive": 0,
+        "query_time": 0.0,
+        "retrieved_count": 5
+      }
+    ],
+    "pair_type_performance": {
+      "intertopic_neg": {
+        "false_positive_rate": 0.0,
+        "avg_rank": null,
+        "count": 15
+      }
+    },
+    "overall_metrics": {
+      "false_positive_rate": 0.0,
+      "avg_query_time": 0.0,
+      "total_negatives": 30
+    },
+    "false_positive_analysis": {}
+  },
+  "topic_retrieval": {
+    "topic_queries": [
+      {
+        "query_id": "topic_crimes",
+        "topic": "crimes",
+        "topic_relevance": 0.0,
+        "query_time": 0.3287346363067627,
+        "retrieved_count": 5
+      },
+      {
+        "query_id": "topic_culture",
+        "topic": "culture",
+        "topic_relevance": 0.0,
+        "query_time": 0.2689247131347656,
+        "retrieved_count": 5
+      },
+      {
+        "query_id": "topic_disasters",
+        "topic": "disasters",
+        "topic_relevance": 0.0,
+        "query_time": 0.2861051559448242,
+        "retrieved_count": 5
+      },
+      {
+        "query_id": "topic_economics",
+        "topic": "economics",
+        "topic_relevance": 0.0,
+        "query_time": 0.31202077865600586,
+        "retrieved_count": 5
+      },
+      {
+        "query_id": "topic_politics",
+        "topic": "politics",
+        "topic_relevance": 0.0,
+        "query_time": 0.31130027770996094,
+        "retrieved_count": 5
+      },
+      {
+        "query_id": "topic_science",
+        "topic": "science",
+        "topic_relevance": 0.0,
+        "query_time": 0.26473355293273926,
+        "retrieved_count": 5
+      },
+      {
+        "query_id": "topic_sports",
+        "topic": "sports",
+        "topic_relevance": 0.0,
+        "query_time": 0.30799293518066406,
+        "retrieved_count": 5
+      }
+    ],
+    "topic_metrics": {
+      "politics": {
+        "mean_relevance": 0.0,
+        "std_relevance": 0.0,
+        "query_count": 1
+      },
+      "culture": {
+        "mean_relevance": 0.0,
+        "std_relevance": 0.0,
+        "query_count": 1
+      },
+      "economics": {
+        "mean_relevance": 0.0,
+        "std_relevance": 0.0,
+        "query_count": 1
+      },
+      "crimes": {
+        "mean_relevance": 0.0,
+        "std_relevance": 0.0,
+        "query_count": 1
+      },
+      "disasters": {
+        "mean_relevance": 0.0,
+        "std_relevance": 0.0,
+        "query_count": 1
+      },
+      "science": {
+        "mean_relevance": 0.0,
+        "std_relevance": 0.0,
+        "query_count": 1
+      },
+      "sports": {
+        "mean_relevance": 0.0,
+        "std_relevance": 0.0,
+        "query_count": 1
+      }
+    }
+  },
+  "diversity": {
+    "diversity_queries": [
+      {
+        "query_id": "diversity_cross_topic",
+        "topic_diversity": 0.14285714285714285,
+        "content_diversity": 0.338,
+        "overall_diversity": 0.24042857142857144
+      }
+    ],
+    "diversity_metrics": {
+      "mean_diversity": 0.24042857142857144,
+      "std_diversity": 0.0,
+      "min_diversity": 0.24042857142857144,
+      "max_diversity": 0.24042857142857144
+    }
+  },
+  "difficulty_levels": {
+    "intratopic_negatives": {
+      "avg_score": 0.25,
+      "total_pairs": 6,
+      "sampled_pairs": 6,
+      "difficulty_type": "intratopic",
+      "topic_metrics": {
+        "sports": {
+          "mean_score": 0.25,
+          "count": 2
+        },
+        "economics": {
+          "mean_score": 0.25,
+          "count": 2
+        },
+        "science": {
+          "mean_score": 0.5,
+          "count": 1
+        },
+        "politics": {
+          "mean_score": 0.0,
+          "count": 1
+        }
+      }
+    },
+    "intertopic_negatives": {
+      "avg_score": 0.25,
+      "total_pairs": 6,
+      "sampled_pairs": 6,
+      "difficulty_type": "intertopic",
+      "topic_metrics": {
+        "politics": {
+          "mean_score": 0.25,
+          "count": 2
+        },
+        "disasters": {
+          "mean_score": 0.0,
+          "count": 1
+        },
+        "crimes": {
+          "mean_score": 0.3333333333333333,
+          "count": 3
+        }
+      }
+    },
+    "hard_negatives": {
+      "avg_score": 0.1111111111111111,
+      "total_pairs": 6,
+      "sampled_pairs": 6,
+      "difficulty_type": "hard",
+      "topic_metrics": {
+        "crimes": {
+          "mean_score": 0.16666666666666666,
+          "count": 2
+        },
+        "culture": {
+          "mean_score": 0.0,
+          "count": 1
+        },
+        "science": {
+          "mean_score": 0.0,
+          "count": 2
+        },
+        "economics": {
+          "mean_score": 0.3333333333333333,
+          "count": 1
+        }
+      }
+    },
+    "difficulty_comparison": {
+      "scores": {
+        "intratopic_negatives": 0.25,
+        "intertopic_negatives": 0.25,
+        "hard_negatives": 0.1111111111111111
+      },
+      "ranking": [
+        [
+          "intratopic_negatives",
+          0.25
+        ],
+        [
+          "intertopic_negatives",
+          0.25
+        ],
+        [
+          "hard_negatives",
+          0.1111111111111111
+        ]
+      ],
+      "hardest_level": "hard_negatives"
+    }
+  },
+  "baseline_comparison": {
+    "bm25_baseline": {
+      "method": "BM25 (per-URL ranking)",
+      "MRR": 0.5,
+      "Hit@3": 1.0,
+      "Hit@10": 1.0,
+      "total_queries": 5,
+      "avg_rank": 1.0,
+      "total_documents": 570
+    },
+    "random_baseline": {
+      "method": "Random",
+      "MRR": 0.005969865404213683,
+      "Hit@3": 0.0,
+      "Hit@10": 0.0,
+      "total_queries": 10,
+      "avg_rank": 340.1
+    },
+    "tfidf_baseline": {
+      "method": "TF-IDF (pairwise similarity)",
+      "avg_similarity": 0.667464623632609,
+      "total_queries": 5,
+      "min_similarity": 0.25021438837536775,
+      "max_similarity": 0.8842542545514959,
+      "std_similarity": 0.21884837958947628
+    }
+  },
+  "overall_performance": {
+    "similarity_score": 0.6845238095238095,
+    "topic_relevance": 0.0,
+    "diversity_score": 0.24042857142857144,
+    "intratopic_score": 0.25,
+    "intertopic_score": 0.25,
+    "hard_examples_score": 0.1111111111111111,
+    "overall_score": 0.06047208994708995,
+    "negative_detection_score": 1.0
+  }
+}

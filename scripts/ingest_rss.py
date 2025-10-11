@@ -15,7 +15,7 @@ from newspaper import Config as NPConfig
 # THIS SCRIPT CREATES featured.json and pool.json
 
 # Import entity extraction function
-from src.ingestion import extract_entities
+from src.utils.ingestion import extract_entities
 from src.config import MAX_ENTITIES_PER_ARTICLE
 
 
