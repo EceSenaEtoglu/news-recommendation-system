@@ -79,6 +79,22 @@ class RAGConfig:
     POOL_K: int = 300   # breadth for recall (after RRF + graph)
     CE_K: int = 100     # expensive CE depth (only used if CE is enabled)
     RRF_K: int = 60     # reciprocal-rank constant for RRF
+    
+    # Recommendation system settings
+    top_k: int = 10
+    min_score: float = 0.0  # cosine similarity threshold in FAISS (0..1 after normalize)
+    
+    # Topic overlap bonus
+    topic_overlap_boost: float = 0.1  # additional boost per topic overlap (small)
+    max_topic_bonus: float = 0.5      # cap total bonus from topics
+    
+    # Neural reranker settings (for future use - requires user interaction data)
+    use_neural_reranker: bool = False
+    neural_config: Optional['NeuralRerankerConfig'] = None
+    
+    def __post_init__(self):
+        if self.neural_config is None:
+            self.neural_config = NeuralRerankerConfig()
 
 
 
@@ -136,26 +152,6 @@ class NeuralRerankerConfig:
     batch_size: int = 32
     num_epochs: int = 100
     early_stopping_patience: int = 10
-
-
-@dataclass
-class RecommendationConfig:
-    """Configuration for the unified recommendation system."""
-    # Basic settings
-    top_k: int = 10
-    min_score: float = 0.0  # cosine similarity threshold in FAISS (0..1 after normalize)
-    
-    # Topic overlap bonus
-    topic_overlap_boost: float = 0.1  # additional boost per topic overlap (small)
-    max_topic_bonus: float = 0.5      # cap total bonus from topics
-    
-    # Neural reranker settings (for future use - requires user interaction data)
-    use_neural_reranker: bool = False
-    neural_config: Optional[NeuralRerankerConfig] = None
-    
-    def __post_init__(self):
-        if self.neural_config is None:
-            self.neural_config = NeuralRerankerConfig()
 
 
 @dataclass

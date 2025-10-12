@@ -21,7 +21,8 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from src.storage import ArticleDB
 from src.embeddings import EmbeddingSystem
-from src.recommendation_system import RecommendationSystem, RecommendationConfig
+from src.recommendation_system import RecommendationSystem
+from src.config import RAGConfig
 from src.providers.fixture import FixtureProvider
 from src.utils.ingestion import extract_entities
 from src.utils.helpers import build_bm25_index
@@ -40,7 +41,7 @@ def get_recommendation_system():
         print("Initializing recommendation system...")
         _db = ArticleDB("db/articles.db")
         _emb = EmbeddingSystem()
-        config = RecommendationConfig(
+        config = RAGConfig(
             top_k=20
         )
         _rec_system = RecommendationSystem(_db, _emb, config)
@@ -157,7 +158,7 @@ def _load_fixture_articles(provider: FixtureProvider, featured_limit: int = 20, 
 
 
 def cmd_recommend(article_id: str, k: int = 5):
-    """Get basic recommendations for an article"""
+    """Get basic recommendations for an article using RecommendationSystem"""
     rec = get_recommendation_system()
     
     article = rec.db.get_article_by_id(article_id)
@@ -168,6 +169,7 @@ def cmd_recommend(article_id: str, k: int = 5):
     print(f"Basic Recommendations for: {article.title}")
     print("=" * 60)
     
+    # Use RecommendationSystem.recommend_for_article() with basic config
     recommendations = rec.recommend_for_article(article, k=k)
     for i, (candidate, score) in enumerate(recommendations, 1):
         explanation = rec.explain_recommendation(article, candidate)
@@ -180,14 +182,25 @@ def cmd_recommend(article_id: str, k: int = 5):
 
 
 def cmd_enhanced_recommend(article_id: str, k: int = 5, model_name: str = None):
-    """Get enhanced recommendations with neural reranker"""
+    """Get enhanced recommendations with advanced RAG features"""
     rec = get_recommendation_system()
+    
+    # Temporarily modify config for enhanced features
+    original_config = rec.config
+    rec.config.enable_graph_rag = True
+    rec.config.enable_cross_encoder = True
+    rec.config.entity_boost_weight = 0.2  # Higher entity boost
+    rec.config.personalization_weight = 0.15  # Higher personalization
+    rec.config.BM25_K = 300  # More BM25 candidates
+    rec.config.DENSE_K = 300  # More semantic candidates
+    rec.config.POOL_K = 400  # Larger pool for better recall
+    rec.config.CE_K = 150    # More cross-encoder candidates
+    rec.config.RRF_K = 80    # Higher RRF constant
+    rec.config.topic_overlap_boost = 0.15  # Higher topic overlap boost
+    rec.config.max_topic_bonus = 0.7       # Higher max topic bonus
     
     if model_name:
         rec.embeddings.switch_model(model_name)
-    
-    # Enable neural reranker for this command
-    rec.config.use_neural_reranker = True
     
     article = rec.db.get_article_by_id(article_id)
     if not article:
@@ -196,9 +209,7 @@ def cmd_enhanced_recommend(article_id: str, k: int = 5, model_name: str = None):
     
     print(f"Enhanced Recommendations for: {article.title}")
     print("=" * 60)
-    
-    # Note: Neural reranker training requires user interaction data
-    print("Using hybrid search with neural reranker configuration...")
+    print("Using advanced RAG features: Graph RAG, Cross-Encoder, Enhanced Scoring...")
     
     recommendations = rec.recommend_for_article(article, k=k)
     for i, (candidate, score) in enumerate(recommendations, 1):
@@ -209,14 +220,35 @@ def cmd_enhanced_recommend(article_id: str, k: int = 5, model_name: str = None):
         print(f"   Source: {source_name}")
         print(f"   {explanation}")
         print()
+    
+    # Restore original config
+    rec.config = original_config
 
 
 def cmd_multi_model_recommend(article_id: str, k: int = 5, models: list = None):
-    """Get multi-model fusion recommendations"""
+    """Get multi-model fusion recommendations using RecommendationSystem"""
     if models is None:
         models = ["all-MiniLM-L6-v2", "news-similarity"]
     
     rec = get_recommendation_system()
+    
+    # Temporarily modify config for multi-model features
+    original_config = rec.config
+    rec.config.enable_graph_rag = True
+    rec.config.enable_cross_encoder = True
+    rec.config.entity_boost_weight = 0.1  # Moderate entity boost for fusion
+    rec.config.personalization_weight = 0.1  # Moderate personalization
+    rec.config.BM25_K = 250  # Balanced BM25 candidates
+    rec.config.DENSE_K = 250  # Balanced semantic candidates
+    rec.config.POOL_K = 350  # Balanced pool size
+    rec.config.CE_K = 120    # Moderate cross-encoder candidates
+    rec.config.RRF_K = 70     # Balanced RRF constant
+    rec.config.topic_overlap_boost = 0.12  # Moderate topic overlap boost
+    rec.config.max_topic_bonus = 0.6       # Moderate max topic bonus
+    
+    # Switch to the first model in the list for primary embeddings
+    if models:
+        rec.embeddings.switch_model(models[0])
     
     article = rec.db.get_article_by_id(article_id)
     if not article:
@@ -225,20 +257,22 @@ def cmd_multi_model_recommend(article_id: str, k: int = 5, models: list = None):
     
     print(f"Multi-Model Recommendations for: {article.title}")
     print("=" * 60)
+    print(f"Using models: {', '.join(models)}")
+    print("Using RecommendationSystem with multi-model optimized RAG config...")
     
-    # Use multi-model search with larger pool
-    query_text = f"{article.title} {article.description or ''}"
-    results = rec.embeddings.multi_model_search(query_text, models=models, k=k*2, fusion_method="weighted_average")  # Get more to filter out original
+    # Use RecommendationSystem.recommend_for_article() with multi-model config
+    recommendations = rec.recommend_for_article(article, k=k)
+    for i, (candidate, score) in enumerate(recommendations, 1):
+        explanation = rec.explain_recommendation(article, candidate)
+        source_name = getattr(candidate.source, "name", "Unknown") if hasattr(candidate, "source") and candidate.source else "Unknown"
+        url = getattr(candidate, "url", "#")
+        print(f"{i}. {score:.3f} | {candidate.title} | {url}")
+        print(f"   Source: {source_name}")
+        print(f"   {explanation}")
+        print()
     
-    # Filter out the original article and take top k
-    filtered_results = [(aid, score) for aid, score in results if aid != article_id][:k]
-    
-    for i, (aid, score) in enumerate(filtered_results, 1):
-        candidate = rec.db.get_article_by_id(aid)
-        if candidate:
-            print(f"{i}. {score:.3f} | {candidate.title}")
-            print(f"   Source: {candidate.source.name}")
-            print()
+    # Restore original config
+    rec.config = original_config
 
 
 def cmd_list_models():

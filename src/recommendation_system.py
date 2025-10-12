@@ -7,7 +7,7 @@ from typing import List, Tuple, Optional, Dict
 from datetime import datetime, timezone
 
 from src.data_models import Article, SearchQuery, SearchResult
-from src.config import RecommendationConfig, RAGConfig
+from src.config import RAGConfig
 from src.storage import ArticleDB
 from src.embeddings import EmbeddingSystem
 from src.retrieval import MultiRAGRetriever
@@ -19,15 +19,13 @@ class RecommendationSystem:
     and adds recommendation-specific features like topic overlap.
     """
     
-    def __init__(self, db: ArticleDB, embeddings: EmbeddingSystem, config: RecommendationConfig = None, rag_config: RAGConfig = None):
+    def __init__(self, db: ArticleDB, embeddings: EmbeddingSystem, config: RAGConfig = None):
         self.db = db
         self.embeddings = embeddings
-        self.config = config or RecommendationConfig()
+        self.config = config or RAGConfig()
         
         # Initialize the hybrid search system
-        if rag_config is None:
-            rag_config = RAGConfig()
-        self.retriever = MultiRAGRetriever(db, embeddings, rag_config)
+        self.retriever = MultiRAGRetriever(db, embeddings, self.config)
     
     def recommend_for_article(self, current: Article, k: Optional[int] = None) -> List[Tuple[Article, float]]:
         """
@@ -165,13 +163,15 @@ class RecommendationSystem:
 # Convenience function for quick demos
 def get_recommendations_for_article_id(db: ArticleDB, embeddings: EmbeddingSystem, 
                                      article_id: str, top_k: int = 10, 
-                                     rag_config: RAGConfig = None) -> List[Tuple[Article, float]]:
+                                     config: RAGConfig = None) -> List[Tuple[Article, float]]:
     """Get recommendations for an article by ID."""
     article = db.get_article_by_id(article_id)
     if not article:
         return []
     
-    config = RecommendationConfig(top_k=top_k)
-    recommender = RecommendationSystem(db, embeddings, config, rag_config)
+    if config is None:
+        config = RAGConfig()
+    config.top_k = top_k
+    recommender = RecommendationSystem(db, embeddings, config)
     
     return recommender.recommend_for_article(article)

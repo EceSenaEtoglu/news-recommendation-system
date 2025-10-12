@@ -629,60 +629,70 @@ def main():
             cache_key = f"recs_{ss.selected_article_id}_{ss.recommendation_type}_{ss.num_recommendations}"
             if cache_key not in ss:
                 with st.spinner(f"Generating {ss.recommendation_type.lower()} recommendations..."):
-                    cmd_map = { "Basic": ["--recommend", ss.selected_article_id], "Enhanced (Neural)": ["--enhanced", ss.selected_article_id], "Multi-Model": ["--multi-model", ss.selected_article_id], }
-                    cmd = [sys.executable, "scripts/demo.py"] + cmd_map[ss.recommendation_type] + ["--k", str(ss.num_recommendations)]
-                    result = subprocess.run(cmd, capture_output=True, text=True, check=False, cwd=os.getcwd(), env=os.environ.copy())
+                    # Use direct RecommendationSystem instead of subprocess to show logs
+                    from src.recommendation_system import RecommendationSystem
+                    from src.config import RAGConfig
                     
-                    recommendations = []
-                    if result.returncode == 0 and result.stdout:
-                        lines = result.stdout.strip().split("\n")
-                        current_rec = None
+                    # Create appropriate config based on recommendation type
+                    if ss.recommendation_type == "Basic":
+                        config = RAGConfig()
+                    elif ss.recommendation_type == "Enhanced (Neural)":
+                        config = RAGConfig(
+                            enable_graph_rag=True,
+                            enable_cross_encoder=True,
+                            entity_boost_weight=0.2,
+                            personalization_weight=0.15,
+                            BM25_K=300,
+                            DENSE_K=300,
+                            POOL_K=400,
+                            CE_K=150,
+                            RRF_K=80,
+                            topic_overlap_boost=0.15,
+                            max_topic_bonus=0.7
+                        )
+                    elif ss.recommendation_type == "Multi-Model":
+                        config = RAGConfig(
+                            enable_graph_rag=True,
+                            enable_cross_encoder=True,
+                            entity_boost_weight=0.1,
+                            personalization_weight=0.1,
+                            BM25_K=250,
+                            DENSE_K=250,
+                            POOL_K=350,
+                            CE_K=120,
+                            RRF_K=70,
+                            topic_overlap_boost=0.12,
+                            max_topic_bonus=0.6
+                        )
+                    
+                    # Initialize recommendation system
+                    db = ArticleDB("db/articles.db")
+                    embeddings = EmbeddingSystem()
+                    rec_system = RecommendationSystem(db, embeddings, config)
+                    
+                    # Get the article
+                    article = db.get_article_by_id(ss.selected_article_id)
+                    if article:
+                        # Get recommendations directly
+                        recommendations_raw = rec_system.recommend_for_article(article, k=ss.num_recommendations)
                         
-                        for line in lines:
-                            line = line.strip()
-                            if not line:
-                                continue
-                                
-                            # Look for lines that start with a number followed by a dot (e.g., "1. 0.816 | ...")
-                            if line[0].isdigit() and "." in line and "|" in line:
-                                # Save previous recommendation if exists
-                                if current_rec:
-                                    recommendations.append(current_rec)
-                                
-                                # Parse new recommendation
-                                parts = line.split("|")
-                                if len(parts) >= 2:
-                                    # Extract score from the first part (e.g., "1. 0.816" -> "0.816")
-                                    score_part = parts[0].strip()
-                                    if ". " in score_part:
-                                        score_str = score_part.split(". ", 1)[1].strip()
-                                    else:
-                                        score_str = score_part
-                                    
-                                    # Parse title and URL (new format: "title | url")
-                                    if len(parts) >= 3:
-                                        # New format: "1. 0.816 | title | url"
-                                        title = parts[1].strip()
-                                        url = parts[2].strip()
-                                    else:
-                                        # Old format: "1. 0.816 | title"
-                                        title = parts[1].strip()
-                                        url = "#"
-                                    
-                                    try:
-                                        score = float(score_str)
-                                        current_rec = {"title": title, "score": score, "url": url, "source": "Unknown"}
-                                    except:
-                                        current_rec = {"title": title, "score": 0.0, "url": url, "source": "Unknown"}
+                        # Convert to expected format
+                        recommendations = []
+                        for i, (candidate, score) in enumerate(recommendations_raw, 1):
+                            explanation = rec_system.explain_recommendation(article, candidate)
+                            source_name = getattr(candidate.source, "name", "Unknown") if hasattr(candidate, "source") and candidate.source else "Unknown"
+                            url = getattr(candidate, "url", "#")
                             
-                            # Look for source information (e.g., "   Source: www.cnbc.com")
-                            elif line.startswith("   Source: ") and current_rec:
-                                source = line.replace("   Source: ", "").strip()
-                                current_rec["source"] = source
-                        
-                        # Add the last recommendation
-                        if current_rec:
-                            recommendations.append(current_rec)
+                            recommendations.append({
+                                "title": candidate.title,
+                                "score": score,
+                                "url": url,
+                                "source": source_name,
+                                "explanation": explanation
+                            })
+                    else:
+                        st.error(f"Article not found: {ss.selected_article_id}")
+                        recommendations = []
                     
                     ss[cache_key] = recommendations
             

@@ -105,6 +105,13 @@ class MultiRAGRetriever:
                 cache_data = pickle.load(f)
                 self.bm25_index = cache_data['index']
                 self.bm25_articles = cache_data['articles']
+            
+            # Validate cache data
+            if self.bm25_index is None or len(self.bm25_articles) == 0:
+                print(f" Invalid cache: index={self.bm25_index is not None}, articles={len(self.bm25_articles)}")
+                self._rebuild_bm25_index()
+                return
+                
             print(f" Loaded BM25 cache with {len(self.bm25_articles)} articles")
         except Exception as e:
             print(f" Failed to load BM25 cache: {e}")
@@ -112,7 +119,7 @@ class MultiRAGRetriever:
             
     def _rebuild_bm25_index(self):
         """Rebuild BM25 index from database"""
-        articles = self.db.get_recent_articles(limit=1000, hours_back=24*7)
+        articles = self.db.get_recent_articles(limit=1000, hours_back=24*30)
         
         if articles:
             corpus = []
@@ -121,17 +128,31 @@ class MultiRAGRetriever:
             for article in articles:
                 text = f"{article.title} {article.description or ''} {article.content[:500]}"
                 doc_tokens = _tokenize(text)
-                corpus.append(doc_tokens)
-                self.bm25_articles.append(article)
+                # Only add articles with non-empty tokens
+                if doc_tokens:
+                    corpus.append(doc_tokens)
+                    self.bm25_articles.append(article)
             
-            self.bm25_index = BM25Okapi(corpus)
-            print(f"Built BM25 index with {len(articles)} articles")
+            if corpus:
+                self.bm25_index = BM25Okapi(corpus)
+                print(f"Built BM25 index with {len(self.bm25_articles)} articles")
+            else:
+                print("No valid articles found for BM25 index (all articles had empty tokens)")
+                self.bm25_index = None
+                self.bm25_articles = []
         else:
             print("No articles found for BM25 index")
+            self.bm25_index = None
+            self.bm25_articles = []
     
     def _save_bm25_cache(self):
         """Save BM25 index to cache"""
         try:
+            # Only save if we have valid data
+            if self.bm25_index is None or len(self.bm25_articles) == 0:
+                print(" Skipping cache save: invalid index or empty articles")
+                return
+                
             os.makedirs(os.path.dirname(self.bm25_cache_path), exist_ok=True)
             cache_data = {
                 'index': self.bm25_index,
@@ -190,31 +211,34 @@ class MultiRAGRetriever:
 
         # 1) Retrieve (high depths for recall)
         bm25_results = self._bm25_search(query.text, self.config.BM25_K)
+        print(f"BM25 results: {len(bm25_results)}")
         semantic_results = self._semantic_search(query.text, self.config.DENSE_K)
+        print(f"Semantic results: {len(semantic_results)}")
 
         # 2) Hybrid candidate pooling via RRF
         pooled = self._pool_with_rrf(bm25_results, semantic_results,k_rrf=self.config.RRF_K,k_pool=self.config.POOL_K)  # -> [(doc_id, rrf_score)] desc
-
+        print(f"Pooled results: {len(pooled)}")
         # 3) Optional graph expansion
         if self.config.enable_graph_rag:
             pooled = await self._apply_graph_expansion(query.text, pooled)
             pooled = pooled[:self.config.POOL_K]  # re-cap after expansion
+            print(f"Graph expanded results: {len(pooled)}")
 
         # 4) Cross-encoder re-ranking (precision)
         if self.config.enable_cross_encoder:
             # slice BEFORE DB/CE work
             candidate_ids = [doc_id for doc_id, _ in pooled[:self.config.CE_K]]
-
+            print(f"Candidate IDs: {len(candidate_ids)}")
             # fetch only what you will score
             articles = self.db.get_articles_by_ids(candidate_ids)
             articles_dict = {a.id: a for a in articles}
-
+            print(f"Articles dict: {len(articles_dict)}")
             # CE-only ordering: returns [(id, ce_logit)] desc
             ce_ranked = await self.reranking_engine.apply_cross_encoder_reranking(
                 query.text, candidate_ids, articles_dict, limit=self.config.CE_K
             )
             pooled= ce_ranked
-   
+            print(f"CE ranked results: {len(pooled)}")
 
         # TODO
         # 5) Personalization, does not exist for MVP
@@ -226,15 +250,16 @@ class MultiRAGRetriever:
             )
         else:
             personalized_results = pooled
-
+        print(f"Personalized results: {len(personalized_results)}")
         # 7) Diversification / balance
         final_k = getattr(self.config, "final_k", max(100, len(personalized_results)))
         diversified_results = self.reranking_engine.apply_mmr_diversification(
             personalized_results, top_k=min(final_k, len(personalized_results)), articles_dict=articles_dict
         )
- 
+        print(f"Diversified results: {len(diversified_results)}")
         # 8) Materialize output
         final_results = self._create_search_results(diversified_results, query, user_profile)
+        print(f"Final results: {len(final_results)}")
         return final_results[:query.limit]
 
     
