@@ -5,11 +5,16 @@ I built this news recommendation system for getting hands-on experience in moder
 ## Overview
 
 This system combines multiple AI technologies to provide intelligent news recommendations:
-- **Semantic Search**: FAISS-based vector similarity search
-- **Neural Reranking**: Cross-encoder models for precision
-- **Multi-Model Fusion**: Combining different embedding strategies
-- **Custom Graph RAG Behaviour**: Entity-based recommendation expansion
-- **Agentic Features**: AI-powered content analysis and recommendations
+
+- **FAISS Vector Search**: High-performance similarity search
+- **Hybrid Retrieval**: BM25+dense fetch.
+- **RRF**: Rank Hybrid Retrieval / Combine Diff. Embedding Model Scores
+- **Cross-Encoder Reranking**: Neural relevance scoring
+- **Custom Graph RAG**: Entity-based recommendation expansion
+- **MMR Diversification**: Preventing repetitive recommendations
+
+### Agentic Features (In Progress)
+- **Content Validation for Journalists**: AI agents assist in fact-checking and content verification to support journalist reports on the system or open source journalism for qualified users.
 
 ## Quick Start
 
@@ -36,17 +41,6 @@ streamlit run streamlit_app.py
 - **Save and Summarize Article**: AI-generated summaries of selected articles using  transformer models.
 - **Live Data Refresh**: Automatic updates from RSS feeds based on number of news you want to see.
 
-### AI Technologies
-- **FAISS Vector Search**: High-performance similarity search
-- **Hybrid Retrieval**: BM25+dense fetch.
-- **RRF**: Rank Hybrid Retrieval / Combine Diff. Embedding Model Scores
-- **Cross-Encoder Reranking**: Neural relevance scoring
-- **Custom Graph RAG**: Entity-based recommendation expansion
-- **MMR Diversification**: Preventing repetitive recommendations
-
-### Agentic Features (In Progress)
-- **Content Validation for Journalists**: AI agents assist in fact-checking and content verification to support journalist reports on the system or open source journalism for qualified users.
-
 ## System Architecture
 
 ### Recommendation Pipeline
@@ -58,7 +52,7 @@ streamlit run streamlit_app.py
 6. **Content Validation**: AI agents assist in journalistic content verification (in progress)
 
 ### Evaluation Framework
-- **SPICED Dataset Integration**:https://aclanthology.org/2024.lrec-main.1320/ 
+- **SPICED Dataset Integration**: Standardized evaluation metrics
 - **MRR and Hit@K Metrics**: Industry-standard recommendation evaluation
 - **Multi-Configuration Testing**: Systematic performance comparison
 
@@ -75,4 +69,5 @@ streamlit run streamlit_app.py
 - **Performance Comparison**: Multi-configuration benchmarking
 
 ## Project Status
-This is an ongoing learning project that started for self development. The ideas in this project is subject to use in the Inform Me project, please check the licence before wanting to contribute.
+
+This is an ongoing learning project that started for self development. The ideas in this project is subject to use in the Inform Me project, please check the licence.
