@@ -208,64 +208,107 @@ class MultiRAGRetriever:
     # ============================================================================
 
     async def _hybrid_rag(self, query: SearchQuery, user_profile: Optional[UserProfile]) -> List[SearchResult]:
+        try:
+            # 1) Retrieve (high depths for recall)
+            print("Starting BM25 search...")
+            bm25_results = self._bm25_search(query.text, self.config.BM25_K)
+            print(f"BM25 results: {len(bm25_results)}")
+            
+            print("Starting semantic search...")
+            semantic_results = self._semantic_search(query.text, self.config.DENSE_K)
+            print(f"Semantic results: {len(semantic_results)}")
 
-        # 1) Retrieve (high depths for recall)
-        bm25_results = self._bm25_search(query.text, self.config.BM25_K)
-        print(f"BM25 results: {len(bm25_results)}")
-        semantic_results = self._semantic_search(query.text, self.config.DENSE_K)
-        print(f"Semantic results: {len(semantic_results)}")
-
-        # 2) Hybrid candidate pooling via RRF
-        pooled = self._pool_with_rrf(bm25_results, semantic_results,k_rrf=self.config.RRF_K,k_pool=self.config.POOL_K)  # -> [(doc_id, rrf_score)] desc
-        print(f"Pooled results: {len(pooled)}")
-        # 3) Optional graph expansion
-        if self.config.enable_graph_rag:
-            pooled = await self._apply_graph_expansion(query.text, pooled)
-            pooled = pooled[:self.config.POOL_K]  # re-cap after expansion
-            print(f"Graph expanded results: {len(pooled)}")
+            # 2) Hybrid candidate pooling via RRF
+            print("Starting RRF pooling...")
+            pooled = self._pool_with_rrf(bm25_results, semantic_results,k_rrf=self.config.RRF_K,k_pool=self.config.POOL_K)  # -> [(doc_id, rrf_score)] desc
+            print(f"Pooled results: {len(pooled)}")
+            
+            # 3) Optional graph expansion
+            if self.config.enable_graph_rag:
+                print("Starting graph expansion...")
+                pooled = await self._apply_graph_expansion(query.text, pooled)
+                pooled = pooled[:self.config.POOL_K]  # re-cap after expansion
+                print(f"Graph expanded results: {len(pooled)}")
+        except Exception as e:
+            print(f"Error in _hybrid_rag: {e}")
+            import traceback
+            traceback.print_exc()
+            raise
 
         # 4) Cross-encoder re-ranking (precision)
-        if self.config.enable_cross_encoder:
-            # slice BEFORE DB/CE work
-            candidate_ids = [doc_id for doc_id, _ in pooled[:self.config.CE_K]]
-            print(f"Candidate IDs: {len(candidate_ids)}")
-            # fetch only what you will score
-            articles = self.db.get_articles_by_ids(candidate_ids)
-            articles_dict = {a.id: a for a in articles}
-            print(f"Articles dict: {len(articles_dict)}")
-            # CE-only ordering: returns [(id, ce_logit)] desc
-            ce_ranked = await self.reranking_engine.apply_cross_encoder_reranking(
-                query.text, candidate_ids, articles_dict, limit=self.config.CE_K
-            )
-            pooled= ce_ranked
-            print(f"CE ranked results: {len(pooled)}")
-        else:
-            # For non-CE configs, still need articles_dict for personalization and diversification
-            candidate_ids = [doc_id for doc_id, _ in pooled]
-            articles = self.db.get_articles_by_ids(candidate_ids)
-            articles_dict = {a.id: a for a in articles}
-            print(f"Articles dict: {len(articles_dict)}")
+        try:
+            if self.config.enable_cross_encoder:
+                print("Starting cross-encoder reranking...")
+                # slice BEFORE DB/CE work
+                candidate_ids = [doc_id for doc_id, _ in pooled[:self.config.CE_K]]
+                print(f"Candidate IDs: {len(candidate_ids)}")
+                # fetch only what you will score
+                articles = self.db.get_articles_by_ids(candidate_ids)
+                articles_dict = {a.id: a for a in articles}
+                print(f"Articles dict: {len(articles_dict)}")
+                # CE-only ordering: returns [(id, ce_logit)] desc
+                ce_ranked = await self.reranking_engine.apply_cross_encoder_reranking(
+                    query.text, candidate_ids, articles_dict, limit=self.config.CE_K
+                )
+                pooled= ce_ranked
+                print(f"CE ranked results: {len(pooled)}")
+            else:
+                print("Skipping cross-encoder, building articles dict...")
+                # For non-CE configs, still need articles_dict for personalization and diversification
+                candidate_ids = [doc_id for doc_id, _ in pooled]
+                articles = self.db.get_articles_by_ids(candidate_ids)
+                articles_dict = {a.id: a for a in articles}
+                print(f"Articles dict: {len(articles_dict)}")
+        except Exception as e:
+            print(f"Error in cross-encoder section: {e}")
+            import traceback
+            traceback.print_exc()
+            raise
 
         # TODO
         # 5) Personalization, does not exist for MVP
-        if user_profile:
-            user_id = getattr(user_profile, "user_id", None) or "default"
-            user_prefs = self.db.get_user_prefs(user_id)
-            personalized_results = self.scoring_engine.apply_user_preferences(
-                pooled, user_profile, articles_dict, user_prefs
-            )
-        else:
-            personalized_results = pooled
-        print(f"Personalized results: {len(personalized_results)}")
+        try:
+            print("Starting personalization...")
+            if user_profile:
+                user_id = getattr(user_profile, "user_id", None) or "default"
+                user_prefs = self.db.get_user_prefs(user_id)
+                personalized_results = self.scoring_engine.apply_user_preferences(
+                    pooled, user_profile, articles_dict, user_prefs
+                )
+            else:
+                personalized_results = pooled
+            print(f"Personalized results: {len(personalized_results)}")
+        except Exception as e:
+            print(f"Error in personalization section: {e}")
+            import traceback
+            traceback.print_exc()
+            raise
+            
         # 7) Diversification / balance
-        final_k = getattr(self.config, "final_k", max(100, len(personalized_results)))
-        diversified_results = self.reranking_engine.apply_mmr_diversification(
-            personalized_results, top_k=min(final_k, len(personalized_results)), articles_dict=articles_dict
-        )
-        print(f"Diversified results: {len(diversified_results)}")
+        try:
+            print("Starting diversification...")
+            final_k = getattr(self.config, "final_k", max(100, len(personalized_results)))
+            diversified_results = self.reranking_engine.apply_mmr_diversification(
+                personalized_results, top_k=min(final_k, len(personalized_results)), articles_dict=articles_dict
+            )
+            print(f"Diversified results: {len(diversified_results)}")
+        except Exception as e:
+            print(f"Error in diversification section: {e}")
+            import traceback
+            traceback.print_exc()
+            raise
+            
         # 8) Materialize output
-        final_results = self._create_search_results(diversified_results, query, user_profile)
-        print(f"Final results: {len(final_results)}")
+        try:
+            print("Creating final search results...")
+            final_results = self._create_search_results(diversified_results, query, user_profile)
+            print(f"Final results: {len(final_results)}")
+        except Exception as e:
+            print(f"Error in final results creation: {e}")
+            import traceback
+            traceback.print_exc()
+            raise
+            
         return final_results[:query.limit]
 
     
@@ -432,7 +475,14 @@ class MultiRAGRetriever:
             articles = self.db.get_articles_by_ids(top_ids)
             for article in articles:
                 if article.entities:
-                    seed_entities.update(article.entities[:3])  # Limit to 3 entities per article
+                    # Safely handle entities, extracting just the entity names
+                    for entity in article.entities[:3]:  # Limit to 3 entities per article
+                        if isinstance(entity, (tuple, list)) and len(entity) >= 1:
+                            # Extract entity name (first element of tuple)
+                            entity_name = entity[0] if isinstance(entity[0], str) else str(entity[0])
+                            seed_entities.add(entity_name)
+                        elif isinstance(entity, str):
+                            seed_entities.add(entity)
             seed_entities = list(seed_entities)[:5]  # Limit total seed entities
         
         if not seed_entities:
@@ -449,10 +499,19 @@ class MultiRAGRetriever:
         base_scores = {doc_id: score for doc_id, score in results}
         
         for article in graph_articles:
-            article_entities = set(article.entities or [])
+            # Safely extract entity names from article.entities
+            article_entity_names = set()
+            if article.entities:
+                for entity in article.entities:
+                    if isinstance(entity, (tuple, list)) and len(entity) >= 1:
+                        # Extract entity name (first element of tuple)
+                        entity_name = entity[0] if isinstance(entity[0], str) else str(entity[0])
+                        article_entity_names.add(entity_name)
+                    elif isinstance(entity, str):
+                        article_entity_names.add(entity)
             
             # Boost if article mentions seed entities
-            seed_overlap = len(seed_entities & article_entities)
+            seed_overlap = len(seed_entities & article_entity_names)
             if seed_overlap > 0:
                 boost = 0.2 * seed_overlap  # Simple linear boost
                 base_scores[article.id] = base_scores.get(article.id, 0) + boost
@@ -593,7 +652,17 @@ class MultiRAGRetriever:
         # Show entity overlap (Graph RAG feature)
         seed_entities = set(self._ner_entities_from_text(query.text))
         if seed_entities and article.entities:
-            overlapping_entities = [e for e in article.entities if e in seed_entities][:2]
+            # Safely extract entity names from article.entities
+            article_entity_names = []
+            for entity in article.entities:
+                if isinstance(entity, (tuple, list)) and len(entity) >= 1:
+                    # Extract entity name (first element of tuple)
+                    entity_name = entity[0] if isinstance(entity[0], str) else str(entity[0])
+                    article_entity_names.append(entity_name)
+                elif isinstance(entity, str):
+                    article_entity_names.append(entity)
+            
+            overlapping_entities = [e for e in article_entity_names if e in seed_entities][:2]
             if overlapping_entities:
                 reasons.append(f"mentions {', '.join(overlapping_entities)}")
 

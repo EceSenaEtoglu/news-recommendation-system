@@ -242,6 +242,16 @@ class FixtureProvider(ArticleProvider):
         base = url if url else title
         art_id = hashlib.sha256(base.encode("utf-8")).hexdigest()[:24]
 
+        # Convert entities from list of lists to list of tuples
+        entities_data = item.get("entities", [])
+        entities = []
+        if entities_data:
+            for entity in entities_data:
+                if isinstance(entity, list) and len(entity) >= 3:
+                    entities.append((entity[0], entity[1], entity[2]))
+                elif isinstance(entity, tuple) and len(entity) >= 3:
+                    entities.append(entity)
+        
         return Article(
             id=art_id,
             title=title,
@@ -254,7 +264,7 @@ class FixtureProvider(ArticleProvider):
             author=author,
             content_type=ContentType.FACTUAL,
             topics=[category.value],  # map category → topics for free "topic" signal
-            entities=item.get("entities", []),  # Extract entities with types (name, type, count)
+            entities=entities,  # Converted to proper tuple format
         )
     
     def get_metadata(self) -> Dict[str, Any]:

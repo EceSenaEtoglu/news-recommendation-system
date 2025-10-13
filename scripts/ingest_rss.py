@@ -1,4 +1,5 @@
 import os
+import sys
 import json
 import time
 import argparse
@@ -11,6 +12,10 @@ import feedparser
 from newspaper import Article as NPArticle
 from newspaper import Config as NPConfig
 
+# Add project root to path
+project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, project_root)
+sys.path.insert(0, os.path.join(project_root, 'src'))
 
 # THIS SCRIPT CREATES featured.json and pool.json
 

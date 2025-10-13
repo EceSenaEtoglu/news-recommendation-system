@@ -1,6 +1,6 @@
 {
   "metadata": {
-    "evaluation_date": "2025-10-13T15:20:44.897398",
+    "evaluation_date": "2025-10-13T16:53:45.390993",
     "test_pairs": 889,
     "configs_tested": [
       "basic",
@@ -37,19 +37,52 @@
   },
   "diversity": {
     "basic": {
-      "topic_diversity": 0.5714285714285714,
-      "unique_topics": 4,
-      "total_recommendations": 10
+      "topic_diversity": 1.0,
+      "unique_topics_found": 7,
+      "total_possible_topics": 7,
+      "avg_topics_per_query": 1.4285714285714286,
+      "topic_coverage": {
+        "politics": 1,
+        "culture": 4,
+        "economics": 1,
+        "crimes": 1,
+        "disasters": 1,
+        "science": 1,
+        "sports": 1
+      },
+      "queries_tested": 7
     },
     "enhanced": {
-      "topic_diversity": 0.5714285714285714,
-      "unique_topics": 4,
-      "total_recommendations": 10
+      "topic_diversity": 1.0,
+      "unique_topics_found": 7,
+      "total_possible_topics": 7,
+      "avg_topics_per_query": 1.4285714285714286,
+      "topic_coverage": {
+        "politics": 1,
+        "culture": 4,
+        "economics": 1,
+        "crimes": 1,
+        "disasters": 1,
+        "science": 1,
+        "sports": 1
+      },
+      "queries_tested": 7
     },
     "full": {
-      "topic_diversity": 0.5714285714285714,
-      "unique_topics": 4,
-      "total_recommendations": 10
+      "topic_diversity": 1.0,
+      "unique_topics_found": 7,
+      "total_possible_topics": 7,
+      "avg_topics_per_query": 2.4285714285714284,
+      "topic_coverage": {
+        "politics": 3,
+        "culture": 4,
+        "economics": 1,
+        "crimes": 2,
+        "disasters": 3,
+        "science": 2,
+        "sports": 2
+      },
+      "queries_tested": 7
     }
   },
   "config_comparison": {

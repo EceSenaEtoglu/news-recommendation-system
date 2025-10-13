@@ -3,7 +3,7 @@ Unified Recommendation System using MultiRAGRetriever
 """
 
 import numpy as np
-from typing import List, Tuple, Optional, Dict
+from typing import List, Tuple, Optional, Any, Dict
 from datetime import datetime, timezone
 
 from src.data_models import Article, SearchQuery, SearchResult
@@ -52,7 +52,8 @@ class RecommendationSystem:
         
         # Step 3: Convert to (article, score) format and exclude current article
         candidates = []
-        current_topics = set(current.topics or [])
+        # Safely convert topics to set, handling nested lists
+        current_topics = set(self._flatten_topics(current.topics or []))
         
         for result in search_results:
             if result.article.id == current.id:
@@ -61,7 +62,8 @@ class RecommendationSystem:
             # Apply topic overlap bonus
             score = result.final_score
             if current_topics and result.article.topics:
-                overlap = current_topics.intersection(set(result.article.topics))
+                candidate_topics = set(self._flatten_topics(result.article.topics))
+                overlap = current_topics.intersection(candidate_topics)
                 bonus = min(self.config.max_topic_bonus, 
                            self.config.topic_overlap_boost * len(overlap))
                 score += bonus
@@ -131,8 +133,8 @@ class RecommendationSystem:
         reasons = []
         
         # Topic overlap
-        seed_topics = set(seed.topics or [])
-        cand_topics = set(candidate.topics or [])
+        seed_topics = set(self._flatten_topics(seed.topics or []))
+        cand_topics = set(self._flatten_topics(candidate.topics or []))
         overlap = seed_topics.intersection(cand_topics)
         if overlap:
             reasons.append(f"overlap topics: {', '.join(list(overlap)[:2])}")
@@ -158,6 +160,24 @@ class RecommendationSystem:
         reasons.append("similar content")
         
         return ", ".join(reasons[:3]) if reasons else "relevant"
+    
+    def _flatten_topics(self, topics) -> List[str]:
+        """Safely flatten topics list, handling nested lists."""
+        if not topics:
+            return []
+        
+        flattened = []
+        for topic in topics:
+            if isinstance(topic, str):
+                flattened.append(topic)
+            elif isinstance(topic, list):
+                # Recursively flatten nested lists
+                flattened.extend(self._flatten_topics(topic))
+            else:
+                # Convert other types to string
+                flattened.append(str(topic))
+        
+        return flattened
 
 
 # Convenience function for quick demos

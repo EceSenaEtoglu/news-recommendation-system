@@ -37,7 +37,7 @@ class RerankFeatureExtractor:
           - source_cred: source credibility (0..1)
           - content_len_norm: min(1, len(content)/content_length_norm)
         """
-        seed_topics = set(seed.topics or [])
+        seed_topics = set(self._flatten_topics(seed.topics or []))
         now = datetime.now(timezone.utc)
         X = []
         ids: List[str] = []
@@ -45,7 +45,7 @@ class RerankFeatureExtractor:
             base = float(base_scores.get(a.id, 0.0))
             overlap = 0
             if seed_topics and a.topics:
-                overlap = len(seed_topics.intersection(set(a.topics)))
+                overlap = len(seed_topics.intersection(set(self._flatten_topics(a.topics or []))))
 
             hours_old = max(0.0, (now - a.published_at).total_seconds() / 3600.0)
             recency = math.exp(-hours_old / max(1e-6, self.cfg.recency_half_life_hours))
@@ -197,7 +197,7 @@ class AdvancedFeatureExtractor:
             semantic_sim = base_scores.get(article.id, 0.0)
             
             # Feature 2: Topic overlap
-            topic_overlap = len(set(seed_article.topics or []).intersection(set(article.topics or [])))
+            topic_overlap = len(set(self._flatten_topics(seed_article.topics or [])).intersection(set(self._flatten_topics(article.topics or []))))
             
             # Feature 3: Recency (exponential decay)
             hours_old = max(0.0, (datetime.now(timezone.utc) - article.published_at).total_seconds() / 3600.0)
@@ -576,6 +576,24 @@ class RerankingEngine:
         print(f"Cross-encoder reranked {len(ce_articles)} results (limit={limit})")
 
         return ce_articles
+    
+    def _flatten_topics(self, topics) -> List[str]:
+        """Safely flatten topics list, handling nested lists."""
+        if not topics:
+            return []
+        
+        flattened = []
+        for topic in topics:
+            if isinstance(topic, str):
+                flattened.append(topic)
+            elif isinstance(topic, list):
+                # Recursively flatten nested lists
+                flattened.extend(self._flatten_topics(topic))
+            else:
+                # Convert other types to string
+                flattened.append(str(topic))
+        
+        return flattened
 
             
 

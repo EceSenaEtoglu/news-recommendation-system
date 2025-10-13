@@ -1,7 +1,6 @@
 """
 Simplified Evaluation Pipeline for News Recommendation System
 Focused on MRR and Hit@K reporting with 3 config variants and 2 evaluation types.
-Interview-friendly version of the comprehensive evaluation pipeline.
 """
 
 import sys
@@ -144,11 +143,7 @@ class SimpleNewsEvaluator:
             # Use test database for evaluation
             test_db_path = "test_db/test_spiced.db"
             if not os.path.exists(test_db_path):
-                print("Creating test database...")
-                from evaluation.test_database import SPICEDTestDatabase
-                test_db = SPICEDTestDatabase(test_db_path)
-                if not test_db.create_test_database():
-                    raise Exception("Failed to create test database")
+                raise Exception(f"Test database not found at {test_db_path}. Please ensure the test database exists.")
             
             # Initialize components
             db = ArticleDB(db_path=test_db_path)
@@ -317,24 +312,60 @@ class SimpleNewsEvaluator:
         return results
     
     def evaluate_diversity(self) -> Dict:
-        """Simple diversity evaluation."""
+        """Diversity evaluation using real articles from different topics."""
         print("Evaluating Diversity...")
         
-        diversity_query = "diverse news from different topics"
-        query_article = self.create_article(diversity_query, "diversity_query", "GENERAL")
+        # Get articles from different topics for diversity testing
+        topic_articles = {}
+        for _, row in self.test_data.iterrows():
+            topic = row['Type']
+            if topic not in topic_articles:
+                topic_articles[topic] = []
+            if len(topic_articles[topic]) < 2:  # Get 2 articles per topic
+                topic_articles[topic].append(row)
+        
+        # Use articles from different topics as queries
+        diversity_queries = []
+        for topic, articles in topic_articles.items():
+            if articles:
+                # Use the first article from each topic as a query
+                article = articles[0]
+                query_article = self.create_article(
+                    article['text_1'], 
+                    article['URL_1'], 
+                    article['Type']
+                )
+                diversity_queries.append((query_article, topic))
         
         results = {}
         for config_name in self.configs.keys():
-            recommendations = self.get_recommendations(query_article, config_name, limit=self.k_diversity)
+            print(f"  Evaluating {config_name} diversity...")
             
-            # Count unique topics
-            topics = [r.get('topic') for r in recommendations if r.get('topic')]
-            unique_topics = len(set(topics))
+            all_topics_found = []
+            topic_coverage = {}
+            
+            for query_article, query_topic in diversity_queries:
+                recommendations = self.get_recommendations(query_article, config_name, limit=self.k_diversity)
+                
+                # Count topics in recommendations
+                rec_topics = [r.get('topic') for r in recommendations if r.get('topic')]
+                unique_rec_topics = set(rec_topics)
+                all_topics_found.extend(rec_topics)
+                
+                # Track topic coverage (how many different topics appear in recommendations)
+                topic_coverage[query_topic] = len(unique_rec_topics)
+            
+            # Calculate overall diversity metrics
+            all_unique_topics = len(set(all_topics_found))
+            total_possible_topics = len(topic_articles)  # Number of topics in dataset
             
             results[config_name] = {
-                'topic_diversity': unique_topics / 7,  # 7 topics in SPICED
-                'unique_topics': unique_topics,
-                'total_recommendations': len(recommendations)
+                'topic_diversity': all_unique_topics / total_possible_topics if total_possible_topics > 0 else 0,
+                'unique_topics_found': all_unique_topics,
+                'total_possible_topics': total_possible_topics,
+                'avg_topics_per_query': np.mean(list(topic_coverage.values())) if topic_coverage else 0,
+                'topic_coverage': topic_coverage,
+                'queries_tested': len(diversity_queries)
             }
         
         return results
@@ -430,7 +461,8 @@ class SimpleNewsEvaluator:
         print(f"\nDIVERSITY (Topic Coverage):")
         print("-" * 30)
         for config, metrics in results['diversity'].items():
-            print(f"  {config:8}: {metrics['unique_topics']}/7 topics ({metrics['topic_diversity']:.2f})")
+            print(f"  {config:8}: {metrics['unique_topics_found']}/{metrics['total_possible_topics']} topics ({metrics['topic_diversity']:.2f})")
+            print(f"           Avg topics per query: {metrics['avg_topics_per_query']:.1f}, Queries: {metrics['queries_tested']}")
         
         # Summary
         print(f"\nSUMMARY:")
