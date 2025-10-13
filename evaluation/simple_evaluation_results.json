@@ -1,0 +1,139 @@
+{
+  "metadata": {
+    "evaluation_date": "2025-10-13T15:20:44.897398",
+    "test_pairs": 889,
+    "configs_tested": [
+      "basic",
+      "enhanced",
+      "full"
+    ],
+    "system_type": "RecommendationSystem"
+  },
+  "similarity": {
+    "basic": {
+      "MRR": 1.0,
+      "Hit@1": 0.9,
+      "Hit@3": 0.9,
+      "Hit@5": 0.9,
+      "avg_rank": 1.0,
+      "found_count": 9
+    },
+    "enhanced": {
+      "MRR": 1.0,
+      "Hit@1": 0.9,
+      "Hit@3": 0.9,
+      "Hit@5": 0.9,
+      "avg_rank": 1.0,
+      "found_count": 9
+    },
+    "full": {
+      "MRR": 0.9333333333333332,
+      "Hit@1": 0.9,
+      "Hit@3": 1.0,
+      "Hit@5": 1.0,
+      "avg_rank": 1.2,
+      "found_count": 10
+    }
+  },
+  "diversity": {
+    "basic": {
+      "topic_diversity": 0.5714285714285714,
+      "unique_topics": 4,
+      "total_recommendations": 10
+    },
+    "enhanced": {
+      "topic_diversity": 0.5714285714285714,
+      "unique_topics": 4,
+      "total_recommendations": 10
+    },
+    "full": {
+      "topic_diversity": 0.5714285714285714,
+      "unique_topics": 4,
+      "total_recommendations": 10
+    }
+  },
+  "config_comparison": {
+    "best_mrr": "basic",
+    "best_hit3": "full",
+    "mrr_scores": {
+      "basic": 1.0,
+      "enhanced": 1.0,
+      "full": 0.9333333333333332
+    },
+    "hit3_scores": {
+      "basic": 0.9,
+      "enhanced": 0.9,
+      "full": 1.0
+    },
+    "mrr_ranking": [
+      [
+        "basic",
+        {
+          "MRR": 1.0,
+          "Hit@1": 0.9,
+          "Hit@3": 0.9,
+          "Hit@5": 0.9,
+          "avg_rank": 1.0,
+          "found_count": 9
+        }
+      ],
+      [
+        "enhanced",
+        {
+          "MRR": 1.0,
+          "Hit@1": 0.9,
+          "Hit@3": 0.9,
+          "Hit@5": 0.9,
+          "avg_rank": 1.0,
+          "found_count": 9
+        }
+      ],
+      [
+        "full",
+        {
+          "MRR": 0.9333333333333332,
+          "Hit@1": 0.9,
+          "Hit@3": 1.0,
+          "Hit@5": 1.0,
+          "avg_rank": 1.2,
+          "found_count": 10
+        }
+      ]
+    ],
+    "hit3_ranking": [
+      [
+        "full",
+        {
+          "MRR": 0.9333333333333332,
+          "Hit@1": 0.9,
+          "Hit@3": 1.0,
+          "Hit@5": 1.0,
+          "avg_rank": 1.2,
+          "found_count": 10
+        }
+      ],
+      [
+        "basic",
+        {
+          "MRR": 1.0,
+          "Hit@1": 0.9,
+          "Hit@3": 0.9,
+          "Hit@5": 0.9,
+          "avg_rank": 1.0,
+          "found_count": 9
+        }
+      ],
+      [
+        "enhanced",
+        {
+          "MRR": 1.0,
+          "Hit@1": 0.9,
+          "Hit@3": 0.9,
+          "Hit@5": 0.9,
+          "avg_rank": 1.0,
+          "found_count": 9
+        }
+      ]
+    ]
+  }
+}
