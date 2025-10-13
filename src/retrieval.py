@@ -239,6 +239,12 @@ class MultiRAGRetriever:
             )
             pooled= ce_ranked
             print(f"CE ranked results: {len(pooled)}")
+        else:
+            # For non-CE configs, still need articles_dict for personalization and diversification
+            candidate_ids = [doc_id for doc_id, _ in pooled]
+            articles = self.db.get_articles_by_ids(candidate_ids)
+            articles_dict = {a.id: a for a in articles}
+            print(f"Articles dict: {len(articles_dict)}")
 
         # TODO
         # 5) Personalization, does not exist for MVP

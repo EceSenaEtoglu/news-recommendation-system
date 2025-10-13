@@ -347,20 +347,9 @@ def render_recommendation_card(rec: dict, article: Article, idx: int, recommenda
         if meta_parts:
             st.markdown(f"<p class='card-meta'>{' • '.join(meta_parts)}</p>", unsafe_allow_html=True)
         
-        score = rec.get('score', 'N/A')
-        if isinstance(score, (int, float)):
-            # Add score range information based on recommendation type
-            if recommendation_type == "Basic":
-                score_info = f"SCORE: {score:.3f} (0.0-1.0+ semantic similarity)"
-            elif recommendation_type == "Enhanced (Neural)":
-                score_info = f"SCORE: {score:.3f} (0.0-1.0+ neural reranked)"
-            elif recommendation_type == "Multi-Model":
-                score_info = f"SCORE: {score:.3f} (0.0-1.0+ multi-model fusion)"
-            else:
-                score_info = f"SCORE: {score:.3f}"
-        else:
-            score_info = f"SCORE: {score}"
-        st.markdown(f"<p class='card-meta'>{score_info}</p>", unsafe_allow_html=True)
+        # Display ranking instead of score
+        rank_info = f"RANK: #{idx}"
+        st.markdown(f"<p class='card-meta'>{rank_info}</p>", unsafe_allow_html=True)
         st.markdown(f"**{rec['title']}**")
 
         st.divider()
