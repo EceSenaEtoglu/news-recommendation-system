@@ -1,6 +1,6 @@
 # AI News Recommendation System
 
-A comprehensive news recommendation system built for learning modern AI technologies including semantic search, neural reranking, multi-model fusion, and agentic AI features. This is an ongoing project that demonstrates practical implementation of advanced recommendation systems and RAG architectures.
+I built this news recommendation system for getting hands-on experience in modern AI technologies including semantic search, neural reranking, multi-model fusion, and agentic AI features. This is an ongoing project that demonstrates practical implementation of recommendation systems and RAG architectures. This project does not use external RAG frameworks for pure understanding of the system.
 
 ## Overview
 
@@ -8,7 +8,7 @@ This system combines multiple AI technologies to provide intelligent news recomm
 - **Semantic Search**: FAISS-based vector similarity search
 - **Neural Reranking**: Cross-encoder models for precision
 - **Multi-Model Fusion**: Combining different embedding strategies
-- **Graph RAG**: Entity-based recommendation expansion
+- **Custom Graph RAG Behaviour**: Entity-based recommendation expansion
 - **Agentic Features**: AI-powered content analysis and recommendations
 
 ## Quick Start
@@ -32,24 +32,20 @@ streamlit run streamlit_app.py
 ## Core Features
 
 ### Web Interface
-- **Interactive Recommendations**: AI-powered article suggestions with multiple model options
-- **Semantic Search**: Find articles by meaning, not just keywords
-- **Article Summarization**: AI-generated summaries using transformer models
-- **Real-time Configuration**: Adjust recommendation parameters on-the-fly
-- **Live Data Refresh**: Automatic updates from RSS feeds
+- **Interactive Recommendations**: Select an article and see AI-powered article suggestions with multiple model options.
+- **Save and Summarize Article**: AI-generated summaries of selected articles using  transformer models.
+- **Live Data Refresh**: Automatic updates from RSS feeds based on number of news you want to see.
 
 ### AI Technologies
 - **FAISS Vector Search**: High-performance similarity search
-- **Sentence Transformers**: Multi-model embedding systems
+- **Hybrid Retrieval**: BM25+dense fetch.
+- **RRF**: Rank Hybrid Retrieval / Combine Diff. Embedding Model Scores
 - **Cross-Encoder Reranking**: Neural relevance scoring
-- **Graph RAG**: Entity-based recommendation expansion
+- **Custom Graph RAG**: Entity-based recommendation expansion
 - **MMR Diversification**: Preventing repetitive recommendations
-- **Multi-Model Fusion**: Combining different AI approaches
 
 ### Agentic Features (In Progress)
-- **Content Validation for Journalists**: AI agents assist in fact-checking and content verification
-- **Open Source Journalism Support**: Tools to help qualified users contribute to open journalism
-- **Automated Quality Assessment**: AI-powered evaluation of article credibility and accuracy
+- **Content Validation for Journalists**: AI agents assist in fact-checking and content verification to support journalist reports on the system or open source journalism for qualified users.
 
 ## System Architecture
 
@@ -61,10 +57,15 @@ streamlit run streamlit_app.py
 5. **Diversification**: MMR-based result variety
 6. **Content Validation**: AI agents assist in journalistic content verification (in progress)
 
+### Evaluation Framework
+- **SPICED Dataset Integration**:https://aclanthology.org/2024.lrec-main.1320/ 
+- **MRR and Hit@K Metrics**: Industry-standard recommendation evaluation
+- **Multi-Configuration Testing**: Systematic performance comparison
+
 ## Configuration Options
 
 ### Recommendation Models
-- **Basic**: Fast semantic similarity search
+- **Basic**: Fast semantic similarity search without Graph RAG behaviour or cross-encoder reranking
 - **Enhanced**: Graph RAG with entity expansion
 - **Full**: Complete pipeline with cross-encoder reranking
 
@@ -74,15 +75,4 @@ streamlit run streamlit_app.py
 - **Performance Comparison**: Multi-configuration benchmarking
 
 ## Project Status
-
-This is an ongoing learning project that started for educational purposes. Current focus areas:
-- Refining recommendation algorithms
-- Refining retrieval algorithms
-- Developing AI agents for journalistic content validation
-- Improving evaluation metrics
-- Optimizing system performance
-
-
-## Contributing
-
-This project is built for learning and experimentation however the features in this project could be used in Inform Me. Please check the LICENSE before wanting to make any contrubutions.
+This is an ongoing learning project that started for self development. The ideas in this project is subject to use in the Inform Me project, please check the licence before wanting to contribute.
