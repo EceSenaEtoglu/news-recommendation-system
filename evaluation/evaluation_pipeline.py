@@ -1,6 +1,6 @@
 """
-Proper Evaluation Pipeline for News Recommendation System
-Using SPICED dataset and comprehensive evaluation metrics with proper train/test splits.
+Refactored Evaluation Pipeline for News Recommendation System
+Using RecommendationSystem with different RAGConfig configurations and SPICED dataset.
 """
 
 import sys
@@ -26,8 +26,15 @@ sys.path.insert(0, os.path.join(project_root, 'src'))
 # Import SPICED loader functions
 from evaluation.spiced_data.spiced_loader import load_combined, load_intertopic, load_intratopic_and_hard_examples, print_dataset_info
 
+# Import recommendation system components
+from src.recommendation_system import RecommendationSystem
+from src.config import RAGConfig
+from src.storage import ArticleDB
+from src.embeddings import EmbeddingSystem
+from src.data_models import Article
+
 class NewsRecommendationEvaluator:
-    """Comprehensive evaluator for news recommendation system."""
+    """Comprehensive evaluator for news recommendation system using RecommendationSystem with different configs."""
     
     def __init__(self):
         """Initialize the evaluator."""
@@ -42,14 +49,100 @@ class NewsRecommendationEvaluator:
         self.hard_test = None
         self.evaluation_results = {}
         
-        # Real system components
+        # System components
         self.db = None
         self.embeddings = None
-        self.retriever = None
         self.system_initialized = False
+        
+        # Recommendation systems with different configs
+        self.recommendation_systems = {}
         
         # Retrieval cache for performance
         self.retrieval_cache = {}
+        
+        # Define different configs to test
+        self.config_variants = self._create_config_variants()
+    
+    def _create_config_variants(self) -> Dict[str, RAGConfig]:
+        """Create different RAGConfig variants for testing."""
+        configs = {}
+        
+        # Basic config - minimal features
+        configs['basic'] = RAGConfig(
+            enable_graph_rag=False,
+            enable_cross_encoder=False,
+            BM25_K=100,
+            DENSE_K=100,
+            POOL_K=150,
+            CE_K=50,
+            RRF_K=30,
+            topic_overlap_boost=0.05,
+            max_topic_bonus=0.2,
+            entity_boost_weight=0.0,
+            personalization_weight=0.0
+        )
+        
+        # Enhanced config - with graph RAG
+        configs['enhanced'] = RAGConfig(
+            enable_graph_rag=True,
+            enable_cross_encoder=False,
+            BM25_K=200,
+            DENSE_K=200,
+            POOL_K=300,
+            CE_K=100,
+            RRF_K=60,
+            topic_overlap_boost=0.1,
+            max_topic_bonus=0.5,
+            entity_boost_weight=0.15,
+            personalization_weight=0.1
+        )
+        
+        # Multi-model config - with cross-encoder
+        configs['multi_model'] = RAGConfig(
+            enable_graph_rag=True,
+            enable_cross_encoder=True,
+            BM25_K=250,
+            DENSE_K=250,
+            POOL_K=350,
+            CE_K=120,
+            RRF_K=70,
+            topic_overlap_boost=0.12,
+            max_topic_bonus=0.6,
+            entity_boost_weight=0.1,
+            personalization_weight=0.1
+        )
+        
+        # High-recall config - more candidates
+        configs['high_recall'] = RAGConfig(
+            enable_graph_rag=True,
+            enable_cross_encoder=True,
+            BM25_K=400,
+            DENSE_K=400,
+            POOL_K=500,
+            CE_K=200,
+            RRF_K=100,
+            topic_overlap_boost=0.15,
+            max_topic_bonus=0.8,
+            entity_boost_weight=0.2,
+            personalization_weight=0.15
+        )
+        
+        # High-precision config - fewer candidates, more focused
+        configs['high_precision'] = RAGConfig(
+            enable_graph_rag=True,
+            enable_cross_encoder=True,
+            BM25_K=150,
+            DENSE_K=150,
+            POOL_K=200,
+            CE_K=80,
+            RRF_K=40,
+            topic_overlap_boost=0.2,
+            max_topic_bonus=1.0,
+            entity_boost_weight=0.25,
+            personalization_weight=0.2
+        )
+        
+        return configs
         
     def load_spiced_dataset(self) -> bool:
         """Load SPICED dataset with proper train/test splits."""
@@ -189,81 +282,150 @@ class NewsRecommendationEvaluator:
     
     
     
-    def evaluate_similarity_detection(self, retriever, queries: List[Dict]) -> Dict:
-        """Evaluate similarity detection with rank metrics and binary classification."""
-        print("Evaluating Similarity Detection...")
+    def evaluate_similarity_detection(self, queries: List[Dict]) -> Dict:
+        """Evaluate similarity detection with rank metrics and binary classification across different configs."""
+        print("Evaluating Similarity Detection across different configs...")
 
         results = {
-            'queries': [],
-            'topic_performance': {},
-            'overall_metrics': {},
-            'binary_classification': {}
+            'config_results': {},
+            'overall_comparison': {}
         }
 
         similarity_queries = [q for q in queries if q['evaluation_type'] == 'similarity_detection']
 
-        ranks = []
-        per_topic = defaultdict(list)
-        binary_predictions = []
-        binary_labels = []
-
-        for query in similarity_queries[:15]:  # cap if needed
-            try:
-                start = time.time()
-                real_results = self._real_retrieval_sync(query['query_text'], limit=5)
-                qtime = time.time() - start
-
-                r = self._rank_of_expected(real_results, query['expected_url'])
-                ranks.append(r)
-                per_topic[query['topic']].append(r)
-
-                # Binary classification: is the expected URL in top-k?
-                binary_pred = 1 if (r is not None and r < 5) else 0  # Top-5 threshold
-                binary_label = 1  # All similarity queries are positive pairs
-                binary_predictions.append(binary_pred)
-                binary_labels.append(binary_label)
-
-                results['queries'].append({
-                    'query_id': query['query_id'],
-                    'topic': query['topic'],
-                    'rank': None if r is None else int(r),
-                    'hit@1': 1 if (r is not None and r < 1) else 0,
-                    'hit@3': 1 if (r is not None and r < 3) else 0,
-                    'hit@10': 1 if (r is not None and r < 10) else 0,
-                    'binary_prediction': binary_pred,
-                    'query_time': qtime,
-                    'retrieved_count': len(real_results)
-                })
-            except Exception as e:
-                print(f"Error evaluating query {query['query_id']}: {e}")
-
-        if results['queries']:
-            results['overall_metrics'] = {
-                'MRR': self._mrr_from_ranks(ranks),
-                'Hit@1': self._hits_at_k(ranks, 1),
-                'Hit@3': self._hits_at_k(ranks, 3),
-                'Hit@10': self._hits_at_k(ranks, 10),
-                'avg_query_time': float(np.mean([r['query_time'] for r in results['queries']]))
+        # Evaluate each config
+        for config_name in self.config_variants.keys():
+            print(f"Evaluating {config_name} config...")
+            
+            config_results = {
+                'queries': [],
+                'topic_performance': {},
+                'overall_metrics': {},
+                'binary_classification': {}
             }
 
-            # Binary classification metrics
-            if binary_predictions and binary_labels:
-                results['binary_classification'] = self._calculate_binary_metrics(
-                    binary_predictions, binary_labels
-                )
+            ranks = []
+            per_topic = defaultdict(list)
+            binary_predictions = []
+            binary_labels = []
 
-        topic_metrics = {}
-        for t, tranks in per_topic.items():
-            topic_metrics[t] = {
-                'MRR': self._mrr_from_ranks(tranks),
-                'Hit@3': self._hits_at_k(tranks, 3),
-                'n': len(tranks)
-            }
-        results['topic_performance'] = topic_metrics
+            for query in similarity_queries[:15]:  # cap if needed
+                try:
+                    # Create mock article from query text
+                    query_article = self._create_mock_article_from_text(
+                        query['query_text'], 
+                        query.get('expected_url')
+                    )
+                    
+                    start = time.time()
+                    recommendations = self._get_recommendations_sync(
+                        query_article, config_name, limit=5
+                    )
+                    qtime = time.time() - start
+
+                    r = self._rank_of_expected(recommendations, query['expected_url'])
+                    ranks.append(r)
+                    per_topic[query['topic']].append(r)
+
+                    # Binary classification: is the expected URL in top-k?
+                    binary_pred = 1 if (r is not None and r < 5) else 0  # Top-5 threshold
+                    binary_label = 1  # All similarity queries are positive pairs
+                    binary_predictions.append(binary_pred)
+                    binary_labels.append(binary_label)
+
+                    config_results['queries'].append({
+                        'query_id': query['query_id'],
+                        'topic': query['topic'],
+                        'rank': None if r is None else int(r),
+                        'hit@1': 1 if (r is not None and r < 1) else 0,
+                        'hit@3': 1 if (r is not None and r < 3) else 0,
+                        'hit@10': 1 if (r is not None and r < 10) else 0,
+                        'binary_prediction': binary_pred,
+                        'query_time': qtime,
+                        'retrieved_count': len(recommendations),
+                        'config_name': config_name
+                    })
+                except Exception as e:
+                    print(f"Error evaluating query {query['query_id']} with {config_name}: {e}")
+
+            if config_results['queries']:
+                config_results['overall_metrics'] = {
+                    'MRR': self._mrr_from_ranks(ranks),
+                    'Hit@1': self._hits_at_k(ranks, 1),
+                    'Hit@3': self._hits_at_k(ranks, 3),
+                    'Hit@10': self._hits_at_k(ranks, 10),
+                    'avg_query_time': float(np.mean([r['query_time'] for r in config_results['queries']]))
+                }
+
+                # Binary classification metrics
+                if binary_predictions and binary_labels:
+                    config_results['binary_classification'] = self._calculate_binary_metrics(
+                        binary_predictions, binary_labels
+                    )
+
+            topic_metrics = {}
+            for t, tranks in per_topic.items():
+                topic_metrics[t] = {
+                    'MRR': self._mrr_from_ranks(tranks),
+                    'Hit@3': self._hits_at_k(tranks, 3),
+                    'n': len(tranks)
+                }
+            config_results['topic_performance'] = topic_metrics
+            
+            results['config_results'][config_name] = config_results
+
+        # Compare configs
+        results['overall_comparison'] = self._compare_config_performance(results['config_results'])
 
         return results
 
-    def evaluate_negative_detection(self, retriever, queries: List[Dict]) -> Dict:
+    def _compare_config_performance(self, config_results: Dict) -> Dict:
+        """Compare performance across different configs."""
+        comparison = {
+            'config_rankings': {},
+            'best_configs': {},
+            'performance_summary': {}
+        }
+        
+        # Extract key metrics for each config
+        config_metrics = {}
+        for config_name, results in config_results.items():
+            if 'overall_metrics' in results:
+                metrics = results['overall_metrics']
+                config_metrics[config_name] = {
+                    'MRR': metrics.get('MRR', 0.0),
+                    'Hit@3': metrics.get('Hit@3', 0.0),
+                    'Hit@1': metrics.get('Hit@1', 0.0),
+                    'avg_query_time': metrics.get('avg_query_time', 0.0)
+                }
+        
+        # Rank configs by different metrics
+        if config_metrics:
+            # MRR ranking
+            mrr_ranking = sorted(config_metrics.items(), key=lambda x: x[1]['MRR'], reverse=True)
+            comparison['config_rankings']['by_MRR'] = mrr_ranking
+            
+            # Hit@3 ranking
+            hit3_ranking = sorted(config_metrics.items(), key=lambda x: x[1]['Hit@3'], reverse=True)
+            comparison['config_rankings']['by_Hit@3'] = hit3_ranking
+            
+            # Speed ranking (lower is better)
+            speed_ranking = sorted(config_metrics.items(), key=lambda x: x[1]['avg_query_time'])
+            comparison['config_rankings']['by_speed'] = speed_ranking
+            
+            # Best configs
+            comparison['best_configs'] = {
+                'best_MRR': mrr_ranking[0][0] if mrr_ranking else None,
+                'best_Hit@3': hit3_ranking[0][0] if hit3_ranking else None,
+                'fastest': speed_ranking[0][0] if speed_ranking else None
+            }
+            
+            # Performance summary
+            comparison['performance_summary'] = config_metrics
+        
+        return comparison
+
+    def evaluate_negative_detection(self, queries: List[Dict]) -> Dict:
         """Evaluate negative pair detection (should NOT find similar articles)."""
         print("Evaluating Negative Detection...")
 
@@ -326,101 +488,217 @@ class NewsRecommendationEvaluator:
         return results
 
     
-    def evaluate_topic_retrieval(self, retriever, queries: List[Dict]) -> Dict:
-        """Evaluate topic-based retrieval performance."""
-        print("Evaluating Topic Retrieval...")
+    def evaluate_topic_retrieval(self, queries: List[Dict]) -> Dict:
+        """Evaluate topic-based retrieval performance across different configs."""
+        print("Evaluating Topic Retrieval across different configs...")
         
         results = {
-            'topic_queries': [],
-            'topic_metrics': {}
+            'config_results': {},
+            'overall_comparison': {}
         }
         
         topic_queries = [q for q in queries if q['evaluation_type'] == 'topic_retrieval']
         
-        for query in topic_queries:
-            try:
-                # Use real system for topic retrieval
-                start_time = time.time()
-                real_results = self._real_retrieval_sync(query['query_text'], limit=5)
-                query_time = time.time() - start_time
-                
-                # Calculate topic relevance
-                topic_relevance = self._calculate_topic_relevance(
-                    query.get('expected_urls', []),
-                    real_results,
-                    query['topic']
-                )
-                
-                result = {
-                    'query_id': query['query_id'],
-                    'topic': query['topic'],
-                    'topic_relevance': topic_relevance,
-                    'query_time': query_time,
-                    'retrieved_count': len(real_results)
-                }
-                
-                results['topic_queries'].append(result)
-                
-            except Exception as e:
-                print(f"Error evaluating topic query {query['query_id']}: {e}")
+        # Evaluate each config
+        for config_name in self.config_variants.keys():
+            print(f"Evaluating topic retrieval for {config_name} config...")
+            
+            config_results = {
+                'topic_queries': [],
+                'topic_metrics': {}
+            }
+            
+            for query in topic_queries:
+                try:
+                    # Create mock article from query text
+                    query_article = self._create_mock_article_from_text(
+                        query['query_text']
+                    )
+                    
+                    # Use recommendation system for topic retrieval
+                    start_time = time.time()
+                    recommendations = self._get_recommendations_sync(
+                        query_article, config_name, limit=5
+                    )
+                    query_time = time.time() - start_time
+                    
+                    # Calculate topic relevance
+                    topic_relevance = self._calculate_topic_relevance(
+                        query.get('expected_urls', []),
+                        recommendations,
+                        query['topic']
+                    )
+                    
+                    result = {
+                        'query_id': query['query_id'],
+                        'topic': query['topic'],
+                        'topic_relevance': topic_relevance,
+                        'query_time': query_time,
+                    'retrieved_count': len(recommendations),
+                        'config_name': config_name
+                    }
+                    
+                    config_results['topic_queries'].append(result)
+                    
+                except Exception as e:
+                    print(f"Error evaluating topic query {query['query_id']} with {config_name}: {e}")
+            
+            # Calculate topic-specific metrics for this config
+            for topic in self.spiced_data['Type'].unique():
+                topic_results = [r for r in config_results['topic_queries'] if r['topic'] == topic]
+                if topic_results:
+                    scores = [r['topic_relevance'] for r in topic_results]
+                    config_results['topic_metrics'][topic] = {
+                        'mean_relevance': np.mean(scores),
+                        'std_relevance': np.std(scores),
+                        'query_count': len(topic_results)
+                    }
+            
+            results['config_results'][config_name] = config_results
         
-        # Calculate topic-specific metrics
-        for topic in self.spiced_data['Type'].unique():
-            topic_results = [r for r in results['topic_queries'] if r['topic'] == topic]
-            if topic_results:
-                scores = [r['topic_relevance'] for r in topic_results]
-                results['topic_metrics'][topic] = {
-                    'mean_relevance': np.mean(scores),
-                    'std_relevance': np.std(scores),
-                    'query_count': len(topic_results)
-                }
+        # Compare configs for topic retrieval
+        results['overall_comparison'] = self._compare_topic_retrieval_performance(results['config_results'])
         
         return results
+
+    def _compare_topic_retrieval_performance(self, config_results: Dict) -> Dict:
+        """Compare topic retrieval performance across different configs."""
+        comparison = {
+            'config_rankings': {},
+            'best_configs': {},
+            'performance_summary': {}
+        }
+        
+        # Extract key metrics for each config
+        config_metrics = {}
+        for config_name, results in config_results.items():
+            if 'topic_metrics' in results:
+                # Calculate overall topic relevance across all topics
+                all_relevances = []
+                for topic, metrics in results['topic_metrics'].items():
+                    all_relevances.append(metrics['mean_relevance'])
+                
+                config_metrics[config_name] = {
+                    'mean_topic_relevance': np.mean(all_relevances) if all_relevances else 0.0,
+                    'std_topic_relevance': np.std(all_relevances) if all_relevances else 0.0,
+                    'topics_covered': len(results['topic_metrics'])
+                }
+        
+        # Rank configs by topic relevance
+        if config_metrics:
+            relevance_ranking = sorted(config_metrics.items(), key=lambda x: x[1]['mean_topic_relevance'], reverse=True)
+            comparison['config_rankings']['by_topic_relevance'] = relevance_ranking
+            
+            # Best configs
+            comparison['best_configs'] = {
+                'best_topic_relevance': relevance_ranking[0][0] if relevance_ranking else None
+            }
+            
+            # Performance summary
+            comparison['performance_summary'] = config_metrics
+        
+        return comparison
     
-    def evaluate_diversity(self, retriever, queries: List[Dict]) -> Dict:
-        """Evaluate recommendation diversity."""
-        print("Evaluating Diversity...")
+    def evaluate_diversity(self, queries: List[Dict]) -> Dict:
+        """Evaluate recommendation diversity across different configs."""
+        print("Evaluating Diversity across different configs...")
         
         results = {
-            'diversity_queries': [],
-            'diversity_metrics': {}
+            'config_results': {},
+            'overall_comparison': {}
         }
         
         diversity_queries = [q for q in queries if q['evaluation_type'] == 'diversity_measurement']
         
-        for query in diversity_queries:
-            try:
-                # Use real system for diversity retrieval
-                real_results = self._real_retrieval_sync(query['query_text'], limit=20)
-                
-                # Calculate diversity metrics
-                topic_diversity = self._calculate_topic_diversity(real_results)
-                content_diversity = self._calculate_content_diversity(real_results)
-                
-                result = {
-                    'query_id': query['query_id'],
-                    'topic_diversity': topic_diversity,
-                    'content_diversity': content_diversity,
-                    'overall_diversity': (topic_diversity + content_diversity) / 2
-                }
-                
-                results['diversity_queries'].append(result)
-                
-            except Exception as e:
-                print(f"Error evaluating diversity query {query['query_id']}: {e}")
-        
-        # Calculate overall diversity metrics
-        if results['diversity_queries']:
-            all_diversity = [r['overall_diversity'] for r in results['diversity_queries']]
-            results['diversity_metrics'] = {
-                'mean_diversity': np.mean(all_diversity),
-                'std_diversity': np.std(all_diversity),
-                'min_diversity': np.min(all_diversity),
-                'max_diversity': np.max(all_diversity)
+        # Evaluate each config
+        for config_name in self.config_variants.keys():
+            print(f"Evaluating diversity for {config_name} config...")
+            
+            config_results = {
+                'diversity_queries': [],
+                'diversity_metrics': {}
             }
+            
+            for query in diversity_queries:
+                try:
+                    # Create mock article from query text
+                    query_article = self._create_mock_article_from_text(
+                        query['query_text']
+                    )
+                    
+                    # Use recommendation system for diversity retrieval
+                    recommendations = self._get_recommendations_sync(
+                        query_article, config_name, limit=20
+                    )
+                    
+                    # Calculate diversity metrics
+                    topic_diversity = self._calculate_topic_diversity(recommendations)
+                    content_diversity = self._calculate_content_diversity(recommendations)
+                    
+                    result = {
+                        'query_id': query['query_id'],
+                        'topic_diversity': topic_diversity,
+                        'content_diversity': content_diversity,
+                        'overall_diversity': (topic_diversity + content_diversity) / 2,
+                        'config_name': config_name
+                    }
+                    
+                    config_results['diversity_queries'].append(result)
+                    
+                except Exception as e:
+                    print(f"Error evaluating diversity query {query['query_id']} with {config_name}: {e}")
+            
+            # Calculate overall diversity metrics for this config
+            if config_results['diversity_queries']:
+                all_diversity = [r['overall_diversity'] for r in config_results['diversity_queries']]
+                config_results['diversity_metrics'] = {
+                    'mean_diversity': np.mean(all_diversity),
+                    'std_diversity': np.std(all_diversity),
+                    'min_diversity': np.min(all_diversity),
+                    'max_diversity': np.max(all_diversity)
+                }
+            
+            results['config_results'][config_name] = config_results
+        
+        # Compare configs for diversity
+        results['overall_comparison'] = self._compare_diversity_performance(results['config_results'])
         
         return results
-    
+
+    def _compare_diversity_performance(self, config_results: Dict) -> Dict:
+        """Compare diversity performance across different configs."""
+        comparison = {
+            'config_rankings': {},
+            'best_configs': {},
+            'performance_summary': {}
+        }
+        
+        # Extract key metrics for each config
+        config_metrics = {}
+        for config_name, results in config_results.items():
+            if 'diversity_metrics' in results:
+                metrics = results['diversity_metrics']
+                config_metrics[config_name] = {
+                    'mean_diversity': metrics.get('mean_diversity', 0.0),
+                    'std_diversity': metrics.get('std_diversity', 0.0),
+                    'min_diversity': metrics.get('min_diversity', 0.0),
+                    'max_diversity': metrics.get('max_diversity', 0.0)
+                }
+        
+        # Rank configs by diversity
+        if config_metrics:
+            diversity_ranking = sorted(config_metrics.items(), key=lambda x: x[1]['mean_diversity'], reverse=True)
+            comparison['config_rankings']['by_diversity'] = diversity_ranking
+            
+            # Best configs
+            comparison['best_configs'] = {
+                'best_diversity': diversity_ranking[0][0] if diversity_ranking else None
+            }
+            
+            # Performance summary
+            comparison['performance_summary'] = config_metrics
+        
+        return comparison
     
     
 
@@ -516,20 +794,6 @@ class NewsRecommendationEvaluator:
             'topic_metrics': topic_metrics
         }
     
-    
-   
-    
-    def _mock_retrieval(self, query_text: str, expected_text: str = "", limit: int = 10) -> List[Dict]:
-        """Trivial mock for when real system isn't initialized or errors."""
-        return [{
-            'text': expected_text, 
-            'url': None, 
-            'topic': None, 
-            'score': 0.0, 
-            'source': 'mock', 
-            'article_id': None
-        } for _ in range(limit)]
-    
     def _calculate_topic_relevance(self, expected_urls: List[str], results: List[Dict], topic: str) -> float:
         """Share of retrieved items whose topic matches the query topic."""
         if not results:
@@ -559,16 +823,10 @@ class NewsRecommendationEvaluator:
         
         return len(unique_words) / 1000  # Normalize
     
-    def initialize_real_system(self) -> bool:
-        """Initialize real system components with test database."""
+    def initialize_recommendation_systems(self) -> bool:
+        """Initialize RecommendationSystem instances with different configs."""
         try:
-            print("Initializing real system components with SPICED test database...")
-            
-            # Import actual system components
-            from storage import ArticleDB
-            from embeddings import EmbeddingSystem
-            from retrieval import MultiRAGRetriever
-            from data_models import SearchQuery
+            print("Initializing RecommendationSystem instances with different configs...")
             
             # Use test database for evaluation
             test_db_path = "test_db/test_spiced.db"
@@ -602,18 +860,17 @@ class NewsRecommendationEvaluator:
             print("Rebuilding FAISS index for test database...")
             self.embeddings.rebuild_index_from_db(self.db)
             
-            # Initialize retriever with reduced cache
-            self.retriever = MultiRAGRetriever(self.db, self.embeddings)
-            # Reduce BM25 cache size for faster evaluation
-            if hasattr(self.retriever, 'bm25_cache_size'):
-                self.retriever.bm25_cache_size = 100  # Reduced from default
-            
-            # Test system with a simple query
-            test_query = SearchQuery(text="test query", limit=5)
-            # Note: search is async, so we'll test it during actual evaluation
+            # Initialize RecommendationSystem instances for each config
+            for config_name, config in self.config_variants.items():
+                print(f"Initializing {config_name} recommendation system...")
+                self.recommendation_systems[config_name] = RecommendationSystem(
+                    db=self.db,
+                    embeddings=self.embeddings,
+                    config=config
+                )
             
             self.system_initialized = True
-            print("Real system components initialized successfully with SPICED test database")
+            print(f"Successfully initialized {len(self.recommendation_systems)} recommendation systems")
             return True
             
         except Exception as e:
@@ -621,45 +878,33 @@ class NewsRecommendationEvaluator:
             self.system_initialized = False
             return False
     
-    def _real_retrieval_sync(self, query_text: str, limit: int = 10) -> List[Dict]:
-        """Synchronous wrapper for real retrieval with caching."""
-        if not self.system_initialized:
-            return self._mock_retrieval(query_text, "")
+    def _get_recommendations_sync(self, query_article: Article, config_name: str = 'multi_model', limit: int = 10) -> List[Dict]:
+        """Get recommendations using RecommendationSystem with specified config."""
+        if not self.system_initialized or config_name not in self.recommendation_systems:
+            return self._mock_retrieval("", "")
         
         # Check cache first
-        cache_key = f"{query_text}_{limit}"
+        cache_key = f"{query_article.id}_{config_name}_{limit}"
         if cache_key in self.retrieval_cache:
             return self.retrieval_cache[cache_key]
         
         try:
-            import asyncio
-            from data_models import SearchQuery
-            
-            # Create search query
-            search_query = SearchQuery(text=query_text, limit=limit)
-            
-            # Run async search
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            try:
-                results = loop.run_until_complete(self.retriever.search(search_query))
-            finally:
-                loop.close()
+            # Get recommendations using the specified config
+            recommendation_system = self.recommendation_systems[config_name]
+            recommendations = recommendation_system.recommend_for_article(query_article, k=limit)
             
             # Convert to evaluation format
             eval_results = []
-            for i, result in enumerate(results):
-                article = result.article
+            for i, (article, score) in enumerate(recommendations):
                 eval_results.append({
                     'text': (article.title or "") + " " + (article.description or ""),
                     'url': getattr(article, 'url', None),
-                    'topic': getattr(article, 'topic', None),
-                    'score': result.final_score,
-                    'source': 'real_system',
+                    'topic': getattr(article, 'topics', [None])[0] if article.topics else None,
+                    'score': score,
+                    'source': f'recommendation_system_{config_name}',
                     'article_id': article.id,
-                    'relevance_score': result.relevance_score,
-                    'freshness_score': result.freshness_score,
-                    'personalization_score': result.personalization_score
+                    'rank': i,
+                    'config_name': config_name
                 })
 
             # Cache the results
@@ -667,13 +912,33 @@ class NewsRecommendationEvaluator:
             return eval_results
             
         except Exception as e:
-            print(f"Error in real retrieval: {e}")
+            print(f"Error in recommendation retrieval with {config_name}: {e}")
             # Fallback to mock
-            return self._mock_retrieval(query_text, "")
+            return self._mock_retrieval("", "")
+    
+    def _create_mock_article_from_text(self, text: str, url: str = None) -> Article:
+        """Create a mock Article object from text for testing."""
+        # This is a simplified mock - in real usage, you'd have proper Article objects
+        from collections import namedtuple
+        Source = namedtuple("Source", ["name", "category"])
+        
+        # Extract title from first sentence
+        title = text.split('.')[0][:100] if text else "Mock Article"
+        
+        return Article(
+            id=f"mock_{hash(text) % 10000}",
+            title=title,
+            description=text[:200] if text else "",
+            content=text,
+            url=url or f"https://mock.com/article/{hash(text) % 10000}",
+            source=Source(name="Mock Source", category="GENERAL"),
+            published_at=datetime.now(),
+            topics=["GENERAL"]
+        )
     
     def run_comprehensive_evaluation(self) -> Dict:
-        """Run comprehensive evaluation pipeline."""
-        print("Starting Comprehensive Evaluation Pipeline")
+        """Run comprehensive evaluation pipeline using RecommendationSystem with different configs."""
+        print("Starting Comprehensive Evaluation Pipeline with RecommendationSystem")
         print("=" * 60)
         
         # Load SPICED dataset
@@ -684,8 +949,8 @@ class NewsRecommendationEvaluator:
         queries = self.create_evaluation_queries()
         print(f"Created {len(queries)} evaluation queries")
         
-        # Initialize real system components
-        system_ready = self.initialize_real_system()
+        # Initialize recommendation systems with different configs
+        system_ready = self.initialize_recommendation_systems()
         if not system_ready:
             print("Using mock evaluation instead")
         
@@ -704,20 +969,60 @@ class NewsRecommendationEvaluator:
                 'topics': list(self.spiced_data['Type'].unique()),
                 'train_pairs': len(self.train_data) if self.train_data is not None else 0,
                 'test_pairs': len(self.test_data) if self.test_data is not None else 0,
-                'positive_ratio': len(self.spiced_data[self.spiced_data['label'] == 1]) / len(self.spiced_data) if len(self.spiced_data) > 0 else 0
+                'positive_ratio': len(self.spiced_data[self.spiced_data['label'] == 1]) / len(self.spiced_data) if len(self.spiced_data) > 0 else 0,
+                'config_variants': list(self.config_variants.keys()),
+                'system_type': 'RecommendationSystem'
             },
-            'similarity_detection': self.evaluate_similarity_detection(self.retriever, queries),
-            'negative_detection': self.evaluate_negative_detection(self.retriever, negative_queries),
-            'topic_retrieval': self.evaluate_topic_retrieval(self.retriever, queries),
-            'diversity': self.evaluate_diversity(self.retriever, queries),
+            'similarity_detection': self.evaluate_similarity_detection(queries),
+            'negative_detection': self.evaluate_negative_detection(negative_queries),
+            'topic_retrieval': self.evaluate_topic_retrieval(queries),
+            'diversity': self.evaluate_diversity(queries),
             'difficulty_levels': self.evaluate_difficulty_levels(),
-            'baseline_comparison': self.evaluate_baselines(all_queries)
+            'baseline_comparison': self.evaluate_baselines(all_queries),
+            'config_analysis': self._analyze_config_performance()
         }
         
         # Calculate overall performance
         evaluation_results['overall_performance'] = self._calculate_overall_performance(evaluation_results)
         
         return evaluation_results
+
+    def _analyze_config_performance(self) -> Dict:
+        """Analyze performance differences between configs."""
+        analysis = {
+            'config_descriptions': {},
+            'performance_insights': {},
+            'recommendations': {}
+        }
+        
+        # Describe each config
+        analysis['config_descriptions'] = {
+            'basic': 'Minimal features - no graph RAG, no cross-encoder, small K values',
+            'enhanced': 'Graph RAG enabled - entity boosting, medium K values',
+            'multi_model': 'Full pipeline - graph RAG + cross-encoder, balanced K values',
+            'high_recall': 'High recall - large K values, more candidates',
+            'high_precision': 'High precision - focused search, high topic bonuses'
+        }
+        
+        # Performance insights
+        analysis['performance_insights'] = {
+            'expected_tradeoffs': {
+                'basic': 'Fastest but lowest quality',
+                'enhanced': 'Good balance of speed and quality',
+                'multi_model': 'Best quality but slower',
+                'high_recall': 'Finds more relevant items but may include noise',
+                'high_precision': 'High quality results but may miss some relevant items'
+            },
+            'use_cases': {
+                'basic': 'Real-time applications, mobile devices',
+                'enhanced': 'General purpose recommendations',
+                'multi_model': 'High-quality recommendations, desktop/web',
+                'high_recall': 'Research, comprehensive analysis',
+                'high_precision': 'Curated content, premium features'
+            }
+        }
+        
+        return analysis
 
     def _rank_of_expected(self, results: List[Dict], expected_url: Optional[str]) -> Optional[int]:
         if not expected_url:
@@ -771,27 +1076,37 @@ class NewsRecommendationEvaluator:
             'intratopic_score': 0.0,
             'intertopic_score': 0.0,
             'hard_examples_score': 0.0,
-            'overall_score': 0.0
+            'overall_score': 0.0,
+            'config_performance': {}
         }
         
-        # Extract metrics from each evaluation
-        if 'similarity_detection' in results and 'overall_metrics' in results['similarity_detection']:
-            sim = results['similarity_detection']['overall_metrics']
-            # prefer MRR / Hit@3
-            overall['similarity_score'] = 0.5 * sim.get('MRR', 0.0) + 0.5 * sim.get('Hit@3', 0.0)
+        # Extract metrics from similarity detection (now has config_results structure)
+        if 'similarity_detection' in results and 'overall_comparison' in results['similarity_detection']:
+            sim_comparison = results['similarity_detection']['overall_comparison']
+            if 'performance_summary' in sim_comparison:
+                # Calculate average performance across all configs
+                all_mrr = [metrics['MRR'] for metrics in sim_comparison['performance_summary'].values()]
+                all_hit3 = [metrics['Hit@3'] for metrics in sim_comparison['performance_summary'].values()]
+                overall['similarity_score'] = 0.5 * np.mean(all_mrr) + 0.5 * np.mean(all_hit3) if all_mrr else 0.0
         
         # Add negative detection metrics
         if 'negative_detection' in results and 'overall_metrics' in results['negative_detection']:
             neg = results['negative_detection']['overall_metrics']
             overall['negative_detection_score'] = 1.0 - neg.get('false_positive_rate', 0.0)  # Lower FP rate is better
 
+        # Extract metrics from topic retrieval (now has config_results structure)
+        if 'topic_retrieval' in results and 'overall_comparison' in results['topic_retrieval']:
+            topic_comparison = results['topic_retrieval']['overall_comparison']
+            if 'performance_summary' in topic_comparison:
+                all_topic_relevance = [metrics['mean_topic_relevance'] for metrics in topic_comparison['performance_summary'].values()]
+                overall['topic_relevance'] = np.mean(all_topic_relevance) if all_topic_relevance else 0.0
         
-        if 'topic_retrieval' in results and 'topic_metrics' in results['topic_retrieval']:
-            topic_scores = [metrics['mean_relevance'] for metrics in results['topic_retrieval']['topic_metrics'].values()]
-            overall['topic_relevance'] = np.mean(topic_scores) if topic_scores else 0.0
-        
-        if 'diversity' in results and 'diversity_metrics' in results['diversity']:
-            overall['diversity_score'] = results['diversity']['diversity_metrics'].get('mean_diversity', 0.0)
+        # Extract metrics from diversity (now has config_results structure)
+        if 'diversity' in results and 'overall_comparison' in results['diversity']:
+            diversity_comparison = results['diversity']['overall_comparison']
+            if 'performance_summary' in diversity_comparison:
+                all_diversity = [metrics['mean_diversity'] for metrics in diversity_comparison['performance_summary'].values()]
+                overall['diversity_score'] = np.mean(all_diversity) if all_diversity else 0.0
         
         # Extract difficulty-based metrics from difficulty_levels
         if 'difficulty_levels' in results:
@@ -989,15 +1304,37 @@ class NewsRecommendationEvaluator:
         print(f"Results saved to {filename}")
     
     def print_summary(self, results: Dict):
-        """Print evaluation summary."""
-        print("\nEvaluation Summary")
-        print("=" * 40)
+        """Print evaluation summary with config comparisons."""
+        print("\nEvaluation Summary - RecommendationSystem with Multiple Configs")
+        print("=" * 60)
         
         metadata = results.get('metadata', {})
         print(f"Evaluation Date: {metadata.get('evaluation_date', 'N/A')}")
+        print(f"System Type: {metadata.get('system_type', 'N/A')}")
         print(f"Total Queries: {metadata.get('total_queries', 0)}")
         print(f"SPICED Pairs: {metadata.get('spiced_pairs', 0)}")
         print(f"Topics: {', '.join(metadata.get('topics', []))}")
+        print(f"Config Variants: {', '.join(metadata.get('config_variants', []))}")
+        
+        # Config comparison results
+        if 'similarity_detection' in results and 'overall_comparison' in results['similarity_detection']:
+            comparison = results['similarity_detection']['overall_comparison']
+            print(f"\nConfig Performance Comparison:")
+            
+            if 'best_configs' in comparison:
+                best = comparison['best_configs']
+                print(f"  Best MRR: {best.get('best_MRR', 'N/A')}")
+                print(f"  Best Hit@3: {best.get('best_Hit@3', 'N/A')}")
+                print(f"  Fastest: {best.get('fastest', 'N/A')}")
+            
+            if 'performance_summary' in comparison:
+                print(f"\nDetailed Performance by Config:")
+                for config_name, metrics in comparison['performance_summary'].items():
+                    print(f"  {config_name}:")
+                    print(f"    MRR: {metrics.get('MRR', 0.0):.3f}")
+                    print(f"    Hit@3: {metrics.get('Hit@3', 0.0):.3f}")
+                    print(f"    Hit@1: {metrics.get('Hit@1', 0.0):.3f}")
+                    print(f"    Avg Time: {metrics.get('avg_query_time', 0.0):.3f}s")
         
         # Overall performance
         overall = results.get('overall_performance', {})
@@ -1006,6 +1343,15 @@ class NewsRecommendationEvaluator:
         print(f"  Topic Relevance: {overall.get('topic_relevance', 0.0):.3f}")
         print(f"  Diversity Score: {overall.get('diversity_score', 0.0):.3f}")
         print(f"  Overall Score: {overall.get('overall_score', 0.0):.3f}")
+        
+        # Config analysis
+        if 'config_analysis' in results:
+            analysis = results['config_analysis']
+            print(f"\nConfig Analysis:")
+            if 'performance_insights' in analysis and 'use_cases' in analysis['performance_insights']:
+                print(f"  Recommended Use Cases:")
+                for config, use_case in analysis['performance_insights']['use_cases'].items():
+                    print(f"    {config}: {use_case}")
         
         # Topic-specific performance
         if 'topic_retrieval' in results and 'topic_metrics' in results['topic_retrieval']:
