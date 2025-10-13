@@ -61,12 +61,6 @@ streamlit run streamlit_app.py
 5. **Diversification**: MMR-based result variety
 6. **Content Validation**: AI agents assist in journalistic content verification (in progress)
 
-### Evaluation Framework
-- **SPICED Dataset Integration**: Standardized evaluation metrics
-- **MRR and Hit@K Metrics**: Industry-standard recommendation evaluation
-- **Multi-Configuration Testing**: Systematic performance comparison
-- **Real-time Performance Monitoring**: Continuous system assessment
-
 ## Configuration Options
 
 ### Recommendation Models
@@ -83,23 +77,12 @@ streamlit run streamlit_app.py
 
 This is an ongoing learning project that started for educational purposes. Current focus areas:
 - Refining recommendation algorithms
+- Refining retrieval algorithms
 - Developing AI agents for journalistic content validation
 - Improving evaluation metrics
 - Optimizing system performance
 
-## Technical Stack
-
-- **Python**: Core implementation
-- **Streamlit**: Web interface
-- **FAISS**: Vector search
-- **Transformers**: Neural models
-- **spaCy**: NLP processing
-- **scikit-learn**: Machine learning utilities
 
 ## Contributing
 
-This project is primarily for learning and experimentation. Suggestions and improvements are welcome, especially around:
-- Recommendation algorithm enhancements
-- Evaluation methodology improvements
-- Performance optimizations
-
+This project is built for learning and experimentation however the features in this project could be used in Inform Me. Please check the LICENSE before wanting to make any contrubutions.
