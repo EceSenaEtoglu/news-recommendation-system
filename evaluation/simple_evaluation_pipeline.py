@@ -10,7 +10,7 @@ import pandas as pd
 import numpy as np
 import random
 from typing import List, Dict, Tuple, Optional
-from datetime import datetime
+from datetime import datetime, timezone
 import time
 
 # Set seeds for reproducibility
@@ -36,13 +36,13 @@ from src.data_models import Article
 class SimpleNewsEvaluator:
     """Simplified evaluator focused on MRR and Hit@K reporting."""
     
-    def __init__(self, n_test_pairs: int = 10, k_recommendations: int = 5, k_diversity: int = 10):
+    def __init__(self, n_test_pairs: int = 10, k_recommendations: int = 5, recreate_test_db: bool =True):
         """Initialize the evaluator.
         
         Args:
             n_test_pairs: Number of test pairs to evaluate (default: 10)
             k_recommendations: Number of recommendations to retrieve (default: 5)
-            k_diversity: Number of recommendations for diversity evaluation (default: 10)
+            recreate_test_db: Whether to recreate test database from scratch (default: True)
         """
         self.test_data = None
         self.recommendation_systems = {}
@@ -51,7 +51,7 @@ class SimpleNewsEvaluator:
         # Parameters
         self.n_test_pairs = n_test_pairs
         self.k_recommendations = k_recommendations
-        self.k_diversity = k_diversity
+        self.recreate_test_db = recreate_test_db
         
         # Only 3 key config variants for interviews
         self.configs = self._create_3_configs()
@@ -99,7 +99,7 @@ class SimpleNewsEvaluator:
             DENSE_K=250,
             POOL_K=350,
             CE_K=120,
-            RRF_K=70,
+            RRF_K=60,
             topic_overlap_boost=0.12,
             max_topic_bonus=0.6,
             entity_boost_weight=0.1,
@@ -119,6 +119,7 @@ class SimpleNewsEvaluator:
             n_hard = 500  # Small dataset for interviews
             
             # Load only test data
+            # TODO, dont load all data, load only test data?
             self.test_data = load_combined('test', path=spiced_path, train_size=train_size, seed=seed, n_hard=n_hard//32)
             print_dataset_info(self.test_data, "Test Data")
             
@@ -135,6 +136,57 @@ class SimpleNewsEvaluator:
             print(f"Failed to load test data: {e}")
             return False
     
+    def populate_test_database(self, db: ArticleDB) -> tuple[bool, bool]:
+        """Populate test database with SPICED articles if not already populated.
+        
+        Returns:
+            tuple[bool, bool]: (success, was_populated)
+                - success: Whether the operation succeeded
+                - was_populated: Whether new articles were actually added
+        """
+        try:
+            # Check if database already has articles (unless force recreation)
+            if not self.recreate_test_db:
+                stats = db.get_stats()
+                existing_count = stats.get('total_articles', 0)
+                if existing_count > 0:
+                    print(f"Test database already has {existing_count} articles, skipping population")
+                    return True, False  # Success but no new articles
+            
+            if self.recreate_test_db:
+                print("Force recreating test database with SPICED articles...")
+            else:
+                print("Populating test database with SPICED articles...")
+            
+            # Convert SPICED pairs to Article objects
+            articles = []
+            for _, row in self.test_data.iterrows():
+                # Create article from text_1
+                article1 = self.create_article(
+                    text=row['text_1'],
+                    url=row['URL_1'],
+                    topic=row['Type']
+                )
+                articles.append(article1)
+                
+                # Create article from text_2
+                article2 = self.create_article(
+                    text=row['text_2'],
+                    url=row['URL_2'],
+                    topic=row['Type']
+                )
+                articles.append(article2)
+            
+            # Save articles to database
+            saved_count = db.save_articles(articles)
+            print(f"Saved {saved_count} SPICED articles to test database")
+            
+            return True, True  # Success and new articles were added
+            
+        except Exception as e:
+            print(f"Failed to populate test database: {e}")
+            return False, False  # Failed
+    
     def initialize_systems(self) -> bool:
         """Initialize RecommendationSystem instances with 3 configs."""
         try:
@@ -142,38 +194,46 @@ class SimpleNewsEvaluator:
             
             # Use test database for evaluation
             test_db_path = "test_db/test_spiced.db"
-            if not os.path.exists(test_db_path):
-                raise Exception(f"Test database not found at {test_db_path}. Please ensure the test database exists.")
+            
+            # Ensure test_db directory exists
+            os.makedirs("test_db", exist_ok=True)
             
             # Initialize components
             db = ArticleDB(db_path=test_db_path)
+            
+            # Populate test database with SPICED articles if needed
+            success, was_populated = self.populate_test_database(db)
+            if not success:
+                print("Failed to populate test database. Returning empty results.")
+                return False
             
             # Use test-specific FAISS paths
             faiss_index_path = "test_db/test_faiss.index"
             faiss_metadata_path = "test_db/test_faiss_metadata.pkl"
             
-            # Remove existing FAISS files if they exist
-            if os.path.exists(faiss_index_path):
-                os.remove(faiss_index_path)
-            if os.path.exists(faiss_metadata_path):
-                os.remove(faiss_metadata_path)
-            
-            # Initialize embeddings
+            # Initialize embeddings (shared across all configs)
             embeddings = EmbeddingSystem(
                 index_path=faiss_index_path,
                 metadata_path=faiss_metadata_path
             )
             
-            # Rebuild FAISS index
-            print("Rebuilding FAISS index...")
-            embeddings.rebuild_index_from_db(db)
+            # Rebuild FAISS index if:
+            # 1. Index files don't exist, OR
+            # 2. Database was just populated with new articles, OR
+            # 3. Force recreation is enabled
+            if (not os.path.exists(faiss_index_path) or not os.path.exists(faiss_metadata_path) or was_populated or self.recreate_test_db):
+                print("Rebuilding FAISS index...")
+                embeddings.rebuild_index_from_db(db)
+            else:
+                print("Loading existing FAISS index...")
+                embeddings.load_index()
             
-            # Initialize RecommendationSystem instances
+            # Initialize RecommendationSystem instances (all share the same embeddings)
             for config_name, config in self.configs.items():
                 print(f"  Initializing {config_name} system...")
                 self.recommendation_systems[config_name] = RecommendationSystem(
                     db=db,
-                    embeddings=embeddings,
+                    embeddings=embeddings,  # Same embeddings instance for all configs
                     config=config
                 )
             
@@ -187,12 +247,18 @@ class SimpleNewsEvaluator:
     
     # TODO, for better evaluation, title can be generated via LLM
     def create_article(self, text: str, url: str, topic: str = "GENERAL") -> Article:
-        """Create an Article object from text data."""
-        from collections import namedtuple
-        Source = namedtuple("Source", ["name", "category"])
+        """Create an Article object from text data for testing purpose."""
+        from src.data_models import Source, SourceCategory
         
         # Extract title from first sentence
         title = text.split('.')[0][:100] if text else "Article"
+        
+        # Convert topic string to SourceCategory enum
+        topic_upper = topic.upper()
+        try:
+            category = SourceCategory[topic_upper]
+        except KeyError:
+            category = SourceCategory.GENERAL
         
         return Article(
             id=url,
@@ -200,8 +266,16 @@ class SimpleNewsEvaluator:
             description=text[:200] if text else "",
             content=text,
             url=url,
-            source=Source(name="SPICED Source", category=topic.upper()),
-            published_at=datetime.now(),
+            source=Source(
+                id=f"spiced_{topic_upper.lower()}",
+                name="SPICED Source",
+                url="https://spiced-dataset.org",
+                category=category,
+                country="us",
+                language="en",
+                credibility_score=0.7
+            ),
+            published_at=datetime.now(timezone.utc),
             topics=[topic]
         )
     
@@ -228,7 +302,7 @@ class SimpleNewsEvaluator:
             eval_results = []
             for i, (article, score) in enumerate(recommendations):
                 eval_results.append({
-                    'text': (article.title or "") + " " + (article.description or ""),
+                    'text': (article.title or "") + " " + (article.description or ""), 
                     'url': getattr(article, 'url', None),
                     'topic': getattr(article, 'topics', [None])[0] if article.topics else None,
                     'score': score,
@@ -271,6 +345,7 @@ class SimpleNewsEvaluator:
         results = {}
         for config_name in self.configs.keys():
             print(f"  Evaluating {config_name} config...")
+            
             ranks = []
             
             for _, pair in test_pairs.iterrows():
@@ -285,12 +360,9 @@ class SimpleNewsEvaluator:
                 recommendations = self.get_recommendations(query_article, config_name)
                 
                 # Debug: Print first few recommendations
-                if len(ranks) < 2:  # Only for first 2 queries to avoid spam
-                    print(f"    Query: {pair['text_1'][:50]}...")
-                    print(f"    Expected URL: {pair['URL_2']}")
+                if len(ranks) < 2:  # Only for first 2 queries to check
                     print(f"    Got {len(recommendations)} recommendations")
-                    if recommendations:
-                        print(f"    First rec URL: {recommendations[0].get('url', 'No URL')}")
+                
                 
                 # Find rank of expected URL
                 rank = self.find_rank(recommendations, pair['URL_2'])
@@ -306,69 +378,13 @@ class SimpleNewsEvaluator:
                 'Hit@3': self.calculate_hit_at_k(ranks, 3),  # Hit@3 uses 0-based internally
                 f'Hit@{self.k_recommendations}': self.calculate_hit_at_k(ranks, self.k_recommendations),
                 'avg_rank': np.mean(ranks_1based) if ranks_1based else None,  # Report 1-based average rank
-                'found_count': sum(1 for r in ranks if r is not None)
+                'found_count': sum(1 for r in ranks if r is not None),
+                'total_queries': len(ranks),
+                'found_ratio': sum(1 for r in ranks if r is not None) / len(ranks) if ranks else 0.0
             }
         
         return results
     
-    def evaluate_diversity(self) -> Dict:
-        """Diversity evaluation using real articles from different topics."""
-        print("Evaluating Diversity...")
-        
-        # Get articles from different topics for diversity testing
-        topic_articles = {}
-        for _, row in self.test_data.iterrows():
-            topic = row['Type']
-            if topic not in topic_articles:
-                topic_articles[topic] = []
-            if len(topic_articles[topic]) < 2:  # Get 2 articles per topic
-                topic_articles[topic].append(row)
-        
-        # Use articles from different topics as queries
-        diversity_queries = []
-        for topic, articles in topic_articles.items():
-            if articles:
-                # Use the first article from each topic as a query
-                article = articles[0]
-                query_article = self.create_article(
-                    article['text_1'], 
-                    article['URL_1'], 
-                    article['Type']
-                )
-                diversity_queries.append((query_article, topic))
-        
-        results = {}
-        for config_name in self.configs.keys():
-            print(f"  Evaluating {config_name} diversity...")
-            
-            all_topics_found = []
-            topic_coverage = {}
-            
-            for query_article, query_topic in diversity_queries:
-                recommendations = self.get_recommendations(query_article, config_name, limit=self.k_diversity)
-                
-                # Count topics in recommendations
-                rec_topics = [r.get('topic') for r in recommendations if r.get('topic')]
-                unique_rec_topics = set(rec_topics)
-                all_topics_found.extend(rec_topics)
-                
-                # Track topic coverage (how many different topics appear in recommendations)
-                topic_coverage[query_topic] = len(unique_rec_topics)
-            
-            # Calculate overall diversity metrics
-            all_unique_topics = len(set(all_topics_found))
-            total_possible_topics = len(topic_articles)  # Number of topics in dataset
-            
-            results[config_name] = {
-                'topic_diversity': all_unique_topics / total_possible_topics if total_possible_topics > 0 else 0,
-                'unique_topics_found': all_unique_topics,
-                'total_possible_topics': total_possible_topics,
-                'avg_topics_per_query': np.mean(list(topic_coverage.values())) if topic_coverage else 0,
-                'topic_coverage': topic_coverage,
-                'queries_tested': len(diversity_queries)
-            }
-        
-        return results
     
     def compare_configs(self, similarity_results: Dict) -> Dict:
         """Simple config comparison."""
@@ -405,7 +421,7 @@ class SimpleNewsEvaluator:
         if not self.load_test_data():
             return {}
         
-        # Step 2: Initialize systems
+        # Step 2: Initialize systems (this will populate test database)
         if not self.initialize_systems():
             print("System initialization failed. Returning empty results.")
             return {}
@@ -416,8 +432,6 @@ class SimpleNewsEvaluator:
         # Type 1: Similarity Detection (MRR + Hit@K)
         similarity_results = self.evaluate_similarity()
         
-        # Type 2: Diversity (Simple metric)
-        diversity_results = self.evaluate_diversity()
         
         # Config comparison
         config_comparison = self.compare_configs(similarity_results)
@@ -430,7 +444,6 @@ class SimpleNewsEvaluator:
                 'system_type': 'RecommendationSystem'
             },
             'similarity': similarity_results,
-            'diversity': diversity_results,
             'config_comparison': config_comparison
         }
     
@@ -448,7 +461,7 @@ class SimpleNewsEvaluator:
             hit_k_key = f'Hit@{self.k_recommendations}'
             print(f"  {config:8}: MRR={metrics['MRR']:.3f}, Hit@1={metrics['Hit@1']:.3f}, Hit@3={metrics['Hit@3']:.3f}, {hit_k_key}={metrics[hit_k_key]:.3f}")
             avg_rank_str = f"{metrics['avg_rank']:.1f}" if metrics['avg_rank'] is not None else "N/A"
-            print(f"           Found: {metrics['found_count']}/{self.n_test_pairs}, Avg Rank: {avg_rank_str} (1-based)")
+            print(f"           Found: {metrics['found_count']}/{metrics['total_queries']} ({metrics['found_ratio']:.1%}), Avg Rank: {avg_rank_str} (1-based)")
         
         # Best Configs
         comparison = results['config_comparison']
@@ -456,13 +469,6 @@ class SimpleNewsEvaluator:
         print("-" * 20)
         print(f"  Best MRR:  {comparison['best_mrr']} ({comparison['mrr_scores'][comparison['best_mrr']]:.3f})")
         print(f"  Best Hit@3: {comparison['best_hit3']} ({comparison['hit3_scores'][comparison['best_hit3']]:.3f})")
-        
-        # Diversity
-        print(f"\nDIVERSITY (Topic Coverage):")
-        print("-" * 30)
-        for config, metrics in results['diversity'].items():
-            print(f"  {config:8}: {metrics['unique_topics_found']}/{metrics['total_possible_topics']} topics ({metrics['topic_diversity']:.2f})")
-            print(f"           Avg topics per query: {metrics['avg_topics_per_query']:.1f}, Queries: {metrics['queries_tested']}")
         
         # Summary
         print(f"\nSUMMARY:")
@@ -482,9 +488,8 @@ def main():
     """Main function to run simple evaluation."""
     # Initialize with custom parameters
     evaluator = SimpleNewsEvaluator(
-        n_test_pairs=10,      # Number of test pairs to evaluate
-        k_recommendations=5,  # Number of recommendations to retrieve
-        k_diversity=10        # Number of recommendations for diversity
+        n_test_pairs=500,      # Number of test pairs to evaluate
+        k_recommendations=5   # Number of recommendations to retrieve
     )
     
     # Run evaluation

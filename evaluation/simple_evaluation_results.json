@@ -1,6 +1,6 @@
 {
   "metadata": {
-    "evaluation_date": "2025-10-13T16:53:45.390993",
+    "evaluation_date": "2025-10-14T21:32:15.142824",
     "test_pairs": 889,
     "configs_tested": [
       "basic",
@@ -11,160 +11,128 @@
   },
   "similarity": {
     "basic": {
-      "MRR": 1.0,
-      "Hit@1": 0.9,
-      "Hit@3": 0.9,
-      "Hit@5": 0.9,
-      "avg_rank": 1.0,
-      "found_count": 9
+      "MRR": 0.9379562043795621,
+      "Hit@1": 0.8231292517006803,
+      "Hit@3": 0.9251700680272109,
+      "Hit@5": 0.9319727891156463,
+      "avg_rank": 1.1423357664233578,
+      "found_count": 274,
+      "total_queries": 294,
+      "found_ratio": 0.9319727891156463
     },
     "enhanced": {
-      "MRR": 1.0,
-      "Hit@1": 0.9,
-      "Hit@3": 0.9,
-      "Hit@5": 0.9,
-      "avg_rank": 1.0,
-      "found_count": 9
+      "MRR": 0.9379562043795621,
+      "Hit@1": 0.8231292517006803,
+      "Hit@3": 0.9251700680272109,
+      "Hit@5": 0.9319727891156463,
+      "avg_rank": 1.1423357664233578,
+      "found_count": 274,
+      "total_queries": 294,
+      "found_ratio": 0.9319727891156463
     },
     "full": {
-      "MRR": 0.9333333333333332,
-      "Hit@1": 0.9,
-      "Hit@3": 1.0,
-      "Hit@5": 1.0,
-      "avg_rank": 1.2,
-      "found_count": 10
-    }
-  },
-  "diversity": {
-    "basic": {
-      "topic_diversity": 1.0,
-      "unique_topics_found": 7,
-      "total_possible_topics": 7,
-      "avg_topics_per_query": 1.4285714285714286,
-      "topic_coverage": {
-        "politics": 1,
-        "culture": 4,
-        "economics": 1,
-        "crimes": 1,
-        "disasters": 1,
-        "science": 1,
-        "sports": 1
-      },
-      "queries_tested": 7
-    },
-    "enhanced": {
-      "topic_diversity": 1.0,
-      "unique_topics_found": 7,
-      "total_possible_topics": 7,
-      "avg_topics_per_query": 1.4285714285714286,
-      "topic_coverage": {
-        "politics": 1,
-        "culture": 4,
-        "economics": 1,
-        "crimes": 1,
-        "disasters": 1,
-        "science": 1,
-        "sports": 1
-      },
-      "queries_tested": 7
-    },
-    "full": {
-      "topic_diversity": 1.0,
-      "unique_topics_found": 7,
-      "total_possible_topics": 7,
-      "avg_topics_per_query": 2.4285714285714284,
-      "topic_coverage": {
-        "politics": 3,
-        "culture": 4,
-        "economics": 1,
-        "crimes": 2,
-        "disasters": 3,
-        "science": 2,
-        "sports": 2
-      },
-      "queries_tested": 7
+      "MRR": 0.9373456790123457,
+      "Hit@1": 0.8129251700680272,
+      "Hit@3": 0.9149659863945578,
+      "Hit@5": 0.9183673469387755,
+      "avg_rank": 1.1481481481481481,
+      "found_count": 270,
+      "total_queries": 294,
+      "found_ratio": 0.9183673469387755
     }
   },
   "config_comparison": {
     "best_mrr": "basic",
-    "best_hit3": "full",
+    "best_hit3": "basic",
     "mrr_scores": {
-      "basic": 1.0,
-      "enhanced": 1.0,
-      "full": 0.9333333333333332
+      "basic": 0.9379562043795621,
+      "enhanced": 0.9379562043795621,
+      "full": 0.9373456790123457
     },
     "hit3_scores": {
-      "basic": 0.9,
-      "enhanced": 0.9,
-      "full": 1.0
+      "basic": 0.9251700680272109,
+      "enhanced": 0.9251700680272109,
+      "full": 0.9149659863945578
     },
     "mrr_ranking": [
       [
         "basic",
         {
-          "MRR": 1.0,
-          "Hit@1": 0.9,
-          "Hit@3": 0.9,
-          "Hit@5": 0.9,
-          "avg_rank": 1.0,
-          "found_count": 9
+          "MRR": 0.9379562043795621,
+          "Hit@1": 0.8231292517006803,
+          "Hit@3": 0.9251700680272109,
+          "Hit@5": 0.9319727891156463,
+          "avg_rank": 1.1423357664233578,
+          "found_count": 274,
+          "total_queries": 294,
+          "found_ratio": 0.9319727891156463
         }
       ],
       [
         "enhanced",
         {
-          "MRR": 1.0,
-          "Hit@1": 0.9,
-          "Hit@3": 0.9,
-          "Hit@5": 0.9,
-          "avg_rank": 1.0,
-          "found_count": 9
+          "MRR": 0.9379562043795621,
+          "Hit@1": 0.8231292517006803,
+          "Hit@3": 0.9251700680272109,
+          "Hit@5": 0.9319727891156463,
+          "avg_rank": 1.1423357664233578,
+          "found_count": 274,
+          "total_queries": 294,
+          "found_ratio": 0.9319727891156463
         }
       ],
       [
         "full",
         {
-          "MRR": 0.9333333333333332,
-          "Hit@1": 0.9,
-          "Hit@3": 1.0,
-          "Hit@5": 1.0,
-          "avg_rank": 1.2,
-          "found_count": 10
+          "MRR": 0.9373456790123457,
+          "Hit@1": 0.8129251700680272,
+          "Hit@3": 0.9149659863945578,
+          "Hit@5": 0.9183673469387755,
+          "avg_rank": 1.1481481481481481,
+          "found_count": 270,
+          "total_queries": 294,
+          "found_ratio": 0.9183673469387755
         }
       ]
     ],
     "hit3_ranking": [
       [
-        "full",
-        {
-          "MRR": 0.9333333333333332,
-          "Hit@1": 0.9,
-          "Hit@3": 1.0,
-          "Hit@5": 1.0,
-          "avg_rank": 1.2,
-          "found_count": 10
-        }
-      ],
-      [
         "basic",
         {
-          "MRR": 1.0,
-          "Hit@1": 0.9,
-          "Hit@3": 0.9,
-          "Hit@5": 0.9,
-          "avg_rank": 1.0,
-          "found_count": 9
+          "MRR": 0.9379562043795621,
+          "Hit@1": 0.8231292517006803,
+          "Hit@3": 0.9251700680272109,
+          "Hit@5": 0.9319727891156463,
+          "avg_rank": 1.1423357664233578,
+          "found_count": 274,
+          "total_queries": 294,
+          "found_ratio": 0.9319727891156463
         }
       ],
       [
         "enhanced",
         {
-          "MRR": 1.0,
-          "Hit@1": 0.9,
-          "Hit@3": 0.9,
-          "Hit@5": 0.9,
-          "avg_rank": 1.0,
-          "found_count": 9
+          "MRR": 0.9379562043795621,
+          "Hit@1": 0.8231292517006803,
+          "Hit@3": 0.9251700680272109,
+          "Hit@5": 0.9319727891156463,
+          "avg_rank": 1.1423357664233578,
+          "found_count": 274,
+          "total_queries": 294,
+          "found_ratio": 0.9319727891156463
+        }
+      ],
+      [
+        "full",
+        {
+          "MRR": 0.9373456790123457,
+          "Hit@1": 0.8129251700680272,
+          "Hit@3": 0.9149659863945578,
+          "Hit@5": 0.9183673469387755,
+          "avg_rank": 1.1481481481481481,
+          "found_count": 270,
+          "total_queries": 294,
+          "found_ratio": 0.9183673469387755
         }
       ]
     ]

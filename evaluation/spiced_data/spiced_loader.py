@@ -32,7 +32,7 @@ def _read_gold(path: str) -> pd.DataFrame:
 
 
 def _split_pos(df_pos: pd.DataFrame, train_size: float, seed: int):
-    # stratify by topic when possible
+    # If all rows have the same topic, stratify=None otherwise, stratify by topic.
     stratify = df_pos[TOPIC_COL] if df_pos[TOPIC_COL].nunique() > 1 else None
     train_df, test_df = train_test_split(
         df_pos, train_size=train_size, random_state=seed, shuffle=True, stratify=stratify
@@ -100,6 +100,7 @@ def _make_neg_intratopic(pos_split: pd.DataFrame, seed: int) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
+# TODO! INSTEAD OF TF-IDF, USE SIMILARITY OF TEXT EMBEDDINGS!!!
 def _mine_hard_negatives(pos_split: pd.DataFrame, k_per_topic: int, seed: int) -> pd.DataFrame:
     """
     Hard negatives: same-topic mismatches with *high* TF-IDF cosine between (text_1, text_2).
