@@ -40,6 +40,8 @@ streamlit run streamlit_app.py
 - **Interactive Recommendations**: Select an article and see AI-powered article suggestions with multiple model options.
 - **Save and Summarize Article**: AI-generated summaries of selected articles using  transformer models.
 - **Live Data Refresh**: Automatic updates from RSS feeds based on number of news you want to see.
+<img width="1898" height="866" alt="image" src="https://github.com/user-attachments/assets/e6db368e-4268-46a7-933a-9977b1ea02d1" />
+
 
 ## System Architecture
 
